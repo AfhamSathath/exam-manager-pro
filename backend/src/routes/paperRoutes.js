@@ -16,6 +16,7 @@ import {
   hodApprove,
   markAsPrinted,
   getModeratedPapers,
+  getApprovedPapers,
 } from "../controllers/paperController.js";
 
 import { protect, authorize } from "../middleware/auth.js";
@@ -50,12 +51,12 @@ router.patch("/:id/revision", protect, authorize("examiner"), examinerModeration
 router.patch("/:id/approve/examiner", protect, authorize("examiner"), examinerApprovePaper);
 
 // -----------------------------
-// HOD routes
+// HOD routes (static routes FIRST)
 // -----------------------------
+router.get("/hod/approved", protect, authorize("hod"), getApprovedPapers);
+router.get("/moderated", protect, authorize("examiner", "hod"), getModeratedPapers);
 router.patch("/:id/approve", protect, authorize("hod"), hodApprove);
 router.patch("/:id/print", protect, authorize("hod"), markAsPrinted);
-// GET ALL MODERATED PAPERS
-router.get("/moderated", protect, authorize("examiner", "hod"), getModeratedPapers);
 
 // -----------------------------
 // Public / Authenticated routes

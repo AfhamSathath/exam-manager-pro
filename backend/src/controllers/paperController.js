@@ -217,3 +217,14 @@ export const getModeratedPapers = async (req, res) => {
     });
   }
 };
+
+
+export const getApprovedPapers = async (req, res) => {
+  try {
+    const papers = await Paper.find({ status: "approved" }).sort({ updatedAt: -1 });
+    res.json(papers);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to fetch approved papers" });
+  }
+};
