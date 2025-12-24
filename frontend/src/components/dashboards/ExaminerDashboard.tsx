@@ -16,7 +16,7 @@ interface Paper {
   paperType: string;
   pdfUrl: string;
   status: string;
-  moderationComments?: { commentByName: string; comment: string }[];
+  moderationComments?: { commentByName: string; comment: string; date?: string }[];
 }
 
 const ExaminerDashboard = () => {
@@ -37,6 +37,7 @@ const ExaminerDashboard = () => {
       setPapers(pending);
     } catch (err) {
       console.error(err);
+      alert("Failed to fetch papers");
     } finally {
       setLoading(false);
     }
@@ -46,7 +47,7 @@ const ExaminerDashboard = () => {
     fetchPapers();
   }, [user, token]);
 
-  // Request revision
+  // Examiner: Request revision
   const requestRevision = async (id: string) => {
     try {
       await axios.patch(
@@ -55,13 +56,19 @@ const ExaminerDashboard = () => {
         { headers: { Authorization: `Bearer ${token}` } }
       );
       setPapers(prev => prev.filter(p => p._id !== id));
+      setComments(prev => {
+        const copy = { ...prev };
+        delete copy[id];
+        return copy;
+      });
+      alert("Revision requested successfully");
     } catch (err) {
       console.error(err);
       alert("Failed to request revision");
     }
   };
 
-  // Approve paper (send to HOD)
+  // Examiner: Approve paper (send to HOD)
   const approvePaper = async (id: string) => {
     try {
       await axios.patch(
@@ -70,6 +77,7 @@ const ExaminerDashboard = () => {
         { headers: { Authorization: `Bearer ${token}` } }
       );
       setPapers(prev => prev.filter(p => p._id !== id));
+      alert("Paper approved successfully");
     } catch (err) {
       console.error(err);
       alert("Failed to approve paper");
@@ -93,7 +101,7 @@ const ExaminerDashboard = () => {
         <div className="grid gap-4">
           {papers.map(paper => (
             <Card key={paper._id} className="shadow-sm">
-              <CardHeader>
+              <CardHeader className="flex justify-between items-center">
                 <CardTitle className="text-xl">{paper.courseName}</CardTitle>
                 <StatusBadge status={paper.status} />
               </CardHeader>
@@ -101,6 +109,7 @@ const ExaminerDashboard = () => {
                 <p className="text-sm text-muted-foreground">
                   {paper.year} • {paper.semester} • {paper.paperType}
                 </p>
+
                 {paper.moderationComments?.length > 0 && (
                   <div className="text-sm text-yellow-800 space-y-1">
                     {paper.moderationComments.map((c, i) => (
@@ -110,21 +119,7 @@ const ExaminerDashboard = () => {
                     ))}
                   </div>
                 )}
-                <div className="flex gap-2">
-                  <Button size="sm" variant="outline" onClick={() => viewPdf(paper.pdfUrl)}>
-                    View PDF
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={() => requestRevision(paper._id)}
-                    disabled={!comments[paper._id]}
-                  >
-                    Request Revision
-                  </Button>
-                  <Button size="sm" className="bg-slate-900" onClick={() => approvePaper(paper._id)}>
-                    Approve
-                  </Button>
-                </div>
+
                 <input
                   className="border rounded p-1 w-full text-sm"
                   placeholder="Add suggestion/comment"
@@ -133,6 +128,24 @@ const ExaminerDashboard = () => {
                     setComments(prev => ({ ...prev, [paper._id]: e.target.value }))
                   }
                 />
+
+                <div className="flex gap-2 mt-2">
+                  <Button size="sm" variant="outline" onClick={() => viewPdf(paper.pdfUrl)}>
+                    View PDF
+                  </Button>
+
+                  <Button
+                    size="sm"
+                    onClick={() => requestRevision(paper._id)}
+                    disabled={!comments[paper._id]}
+                  >
+                    Request Revision
+                  </Button>
+
+                  <Button size="sm" className="bg-slate-900 text-white" onClick={() => approvePaper(paper._id)}>
+                    Approve
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           ))}

@@ -1,8 +1,9 @@
+// backend/src/controllers/paperController.js
 import Paper from "../models/paperModel.js";
 import fs from "fs";
 
 // -----------------------------
-// Create Paper (draft)
+// Create Paper (Lecturer)
 // -----------------------------
 export const createPaper = async (req, res) => {
   try {
@@ -18,6 +19,7 @@ export const createPaper = async (req, res) => {
       paperType,
       pdfUrl,
       status: "draft",
+      lecturerId: req.user.id,
     });
 
     res.status(201).json(paper);
@@ -27,18 +29,15 @@ export const createPaper = async (req, res) => {
 };
 
 // -----------------------------
-// Submit Paper (draft / revision_required → pending_moderation)
+// Submit Paper (Lecturer)
 // -----------------------------
 export const submitPaper = async (req, res) => {
   try {
     const paper = await Paper.findById(req.params.id);
     if (!paper) return res.status(404).json({ message: "Paper not found" });
 
-    if (!["draft", "revision_required"].includes(paper.status)) {
-      return res
-        .status(400)
-        .json({ message: `Cannot submit paper in status '${paper.status}'` });
-    }
+    if (!["draft", "revision_required"].includes(paper.status))
+      return res.status(400).json({ message: `Cannot submit paper in status '${paper.status}'` });
 
     paper.status = "pending_moderation";
     await paper.save();
@@ -50,7 +49,7 @@ export const submitPaper = async (req, res) => {
 };
 
 // -----------------------------
-// Update Paper
+// Update Paper (Lecturer)
 // -----------------------------
 export const updatePaper = async (req, res) => {
   try {
@@ -59,18 +58,19 @@ export const updatePaper = async (req, res) => {
 
     const { year, semester, courseName, paperType } = req.body;
 
+    // Delete old PDF if replaced
     if (req.file && paper.pdfUrl && fs.existsSync(paper.pdfUrl)) {
       fs.unlinkSync(paper.pdfUrl);
     }
 
-    if (req.file) {
-      paper.pdfUrl = req.file.path.replace(/\\/g, "/");
-    }
-
+    if (req.file) paper.pdfUrl = req.file.path.replace(/\\/g, "/");
     paper.year = year || paper.year;
     paper.semester = semester || paper.semester;
     paper.courseName = courseName || paper.courseName;
     paper.paperType = paperType || paper.paperType;
+
+    // Reset status for revision
+    if (req.file) paper.status = "pending_moderation";
 
     const updated = await paper.save();
     res.json(updated);
@@ -80,16 +80,14 @@ export const updatePaper = async (req, res) => {
 };
 
 // -----------------------------
-// Delete Paper
+// Delete Paper (Lecturer)
 // -----------------------------
 export const deletePaper = async (req, res) => {
   try {
     const paper = await Paper.findById(req.params.id);
     if (!paper) return res.status(404).json({ message: "Paper not found" });
 
-    if (paper.pdfUrl && fs.existsSync(paper.pdfUrl)) {
-      fs.unlinkSync(paper.pdfUrl);
-    }
+    if (paper.pdfUrl && fs.existsSync(paper.pdfUrl)) fs.unlinkSync(paper.pdfUrl);
 
     await paper.deleteOne();
     res.json({ message: "Deleted successfully" });
@@ -99,7 +97,7 @@ export const deletePaper = async (req, res) => {
 };
 
 // -----------------------------
-// Get All / Get by ID
+// Get All / Get By ID
 // -----------------------------
 export const getAllPapers = async (req, res) => {
   try {
@@ -120,33 +118,27 @@ export const getPaperById = async (req, res) => {
   }
 };
 
-//
-// ======================================================
-// ✅ NEW: Examiner routes (MATCH FRONTEND)
-// ======================================================
-//
+// -----------------------------
+// Examiner: Request Revision
+// -----------------------------
+export const examinerModerationRequestRevision = async (req, res) => {
+  const { id } = req.params;
+  const { comment } = req.body;
+  if (!comment) return res.status(400).json({ message: "Comment required" });
 
-// -----------------------------
-// Examiner requests revision
-// pending_moderation → revision_required
-// -----------------------------
-export const examinerRequestRevision = async (req, res) => {
   try {
-    const { comment } = req.body;
-
-    const paper = await Paper.findById(req.params.id);
+    const paper = await Paper.findById(id);
     if (!paper) return res.status(404).json({ message: "Paper not found" });
 
-    if (paper.status !== "pending_moderation") {
-      return res.status(400).json({ message: "Paper not in moderation state" });
-    }
-
     paper.status = "revision_required";
-    paper.examinerComment = comment || "";
-    paper.examinerReviewedAt = new Date();
+    paper.moderationComments = paper.moderationComments || [];
+    paper.moderationComments.push({
+      commentByName: req.user.fullName,
+      comment,
+      date: new Date(),
+    });
 
     await paper.save();
-
     res.json({ message: "Revision requested", paper });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -154,67 +146,55 @@ export const examinerRequestRevision = async (req, res) => {
 };
 
 // -----------------------------
-// Examiner approves paper
-// pending_moderation → pending_approval
+// Examiner: Approve Paper (send to HOD)
 // -----------------------------
 export const examinerApprovePaper = async (req, res) => {
+  const { id } = req.params;
+
   try {
-    const paper = await Paper.findById(req.params.id);
+    const paper = await Paper.findById(id);
     if (!paper) return res.status(404).json({ message: "Paper not found" });
 
-    if (paper.status !== "pending_moderation") {
-      return res.status(400).json({ message: "Paper not in moderation state" });
-    }
-
-    paper.status = "pending_approval";
-    paper.examinerReviewedAt = new Date();
-
+    paper.status = "pending_approval"; // HOD approval next
     await paper.save();
-
-    res.json({ message: "Approved by examiner", paper });
+    res.json({ message: "Paper approved by examiner", paper });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
 // -----------------------------
-// HOD approves paper
-// pending_approval → approved
+// HOD: Approve Paper
 // -----------------------------
 export const hodApprove = async (req, res) => {
   try {
     const paper = await Paper.findById(req.params.id);
     if (!paper) return res.status(404).json({ message: "Paper not found" });
 
-    if (paper.status !== "pending_approval") {
+    if (paper.status !== "pending_approval")
       return res.status(400).json({ message: "Cannot approve this paper" });
-    }
 
     paper.status = "approved";
     await paper.save();
-
-    res.json({ message: "HOD approved", paper });
+    res.json({ message: "HOD approved paper", paper });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
 // -----------------------------
-// Mark paper as printed
-// approved → printed
+// HOD: Mark as Printed
 // -----------------------------
 export const markAsPrinted = async (req, res) => {
   try {
     const paper = await Paper.findById(req.params.id);
     if (!paper) return res.status(404).json({ message: "Paper not found" });
 
-    if (paper.status !== "approved") {
+    if (paper.status !== "approved")
       return res.status(400).json({ message: "Only approved papers can be printed" });
-    }
 
     paper.status = "printed";
     await paper.save();
-
     res.json({ message: "Paper marked as printed", paper });
   } catch (err) {
     res.status(500).json({ message: err.message });

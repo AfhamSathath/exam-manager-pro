@@ -24,6 +24,7 @@ const HODDashboard = () => {
   const [papers, setPapers] = useState<Paper[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Fetch papers pending HOD approval or already approved (for printing)
   const fetchPapers = async () => {
     if (!user || !token) return;
     setLoading(true);
@@ -31,11 +32,14 @@ const HODDashboard = () => {
       const res = await axios.get(API_URL, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      // Filter for papers waiting for HOD approval
-      const pending = res.data.filter((p: Paper) => p.status === "pending_approval");
-      setPapers(pending);
+      // Only papers pending approval or approved (for printing)
+      const filtered = res.data.filter(
+        (p: Paper) => p.status === "pending_approval" || p.status === "approved"
+      );
+      setPapers(filtered);
     } catch (err) {
       console.error("Error fetching papers:", err);
+      alert("Failed to fetch papers");
     } finally {
       setLoading(false);
     }
@@ -45,30 +49,43 @@ const HODDashboard = () => {
     fetchPapers();
   }, [user, token]);
 
+  // Approve paper (HOD)
   const approvePaper = async (id: string) => {
     try {
-      await axios.patch(`${API_URL}/${id}/approve`, {}, { 
-        headers: { Authorization: `Bearer ${token}` } 
-      });
-      setPapers(prev => prev.filter(p => p._id !== id));
+      const res = await axios.patch(
+        `${API_URL}/${id}/approve`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      // Update paper status in state
+      setPapers(prev =>
+        prev.map(p => (p._id === id ? { ...p, status: res.data.paper.status } : p))
+      );
+      alert("Paper approved successfully");
     } catch (err) {
       console.error(err);
       alert("Failed to approve paper");
     }
   };
 
+  // Mark paper as printed (HOD)
   const printPaper = async (id: string) => {
     try {
-      await axios.patch(`${API_URL}/${id}/print`, {}, { 
-        headers: { Authorization: `Bearer ${token}` } 
-      });
+      const res = await axios.patch(
+        `${API_URL}/${id}/print`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      // Remove printed paper from dashboard
       setPapers(prev => prev.filter(p => p._id !== id));
-    } catch (err) {
+      alert("Paper marked as printed");
+    } catch (err: any) {
       console.error(err);
-      alert("Failed to mark as printed");
+      alert(err.response?.data?.message || "Failed to mark as printed");
     }
   };
 
+  // Open PDF
   const viewPdf = (url: string) => {
     if (!url) return alert("PDF not available");
     window.open(url, "_blank");
@@ -87,11 +104,11 @@ const HODDashboard = () => {
         </div>
       ) : papers.length === 0 ? (
         <div className="flex flex-col items-center justify-center p-12 border-2 border-dashed rounded-lg">
-          <p className="text-muted-foreground">No papers pending approval</p>
+          <p className="text-muted-foreground">No papers pending approval or printing</p>
         </div>
       ) : (
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {papers.map((paper) => (
+          {papers.map(paper => (
             <Card key={paper._id} className="overflow-hidden shadow-sm">
               <CardHeader className="bg-muted/30 pb-4">
                 <div className="flex justify-between items-start">
@@ -122,12 +139,21 @@ const HODDashboard = () => {
                     View PDF
                   </Button>
                   <div className="flex gap-2">
-                    <Button className="flex-1" size="sm" onClick={() => approvePaper(paper._id)}>
-                      Approve
-                    </Button>
-                    <Button className="flex-1" size="sm" variant="secondary" onClick={() => printPaper(paper._id)}>
-                      Mark Printed
-                    </Button>
+                    {paper.status === "pending_approval" && (
+                      <Button className="flex-1" size="sm" onClick={() => approvePaper(paper._id)}>
+                        Approve
+                      </Button>
+                    )}
+                    {paper.status === "approved" && (
+                      <Button
+                        className="flex-1"
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => printPaper(paper._id)}
+                      >
+                        Mark Printed
+                      </Button>
+                    )}
                   </div>
                 </div>
               </CardContent>

@@ -7,8 +7,15 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { FileText, CheckCircle, Clock, AlertCircle, Eye } from "lucide-react";
 import StatusBadge from "@/components/StatusBadge";
+import { io, Socket } from "socket.io-client";
 
 const API_URL = import.meta.env.VITE_API_URL + "/papers";
+
+interface ModerationComment {
+  commentByName: string;
+  comment: string;
+  date: string;
+}
 
 interface Paper {
   _id: string;
@@ -19,7 +26,7 @@ interface Paper {
   paperType: string;
   pdfUrl: string;
   status: string;
-  moderationComments?: { commentByName: string; comment: string }[];
+  moderationComments?: ModerationComment[];
   createdAt: string;
 }
 
@@ -27,9 +34,11 @@ const LecturerDashboard = () => {
   const { user, token } = useAuth();
   const [papers, setPapers] = useState<Paper[]>([]);
   const [loading, setLoading] = useState(true);
-  const [refreshFlag, setRefreshFlag] = useState(false);
+  const [socket, setSocket] = useState<Socket | null>(null);
 
-  // Fetch all lecturer papers
+  // -----------------------------
+  // Fetch papers
+  // -----------------------------
   const fetchPapers = async () => {
     if (!user || !token) return;
     setLoading(true);
@@ -50,37 +59,75 @@ const LecturerDashboard = () => {
     }
   };
 
+  // -----------------------------
+  // Socket.IO setup
+  // -----------------------------
+  useEffect(() => {
+    if (!user || !token) return;
+
+    const socketClient: Socket = io(import.meta.env.VITE_API_URL, {
+      auth: { token },
+    });
+    setSocket(socketClient);
+
+    socketClient.on("paperUpdated", (updatedPaper: Paper) => {
+      setPapers((prev) => {
+        const exists = prev.find((p) => p._id === updatedPaper._id);
+        if (exists) {
+          return prev.map((p) => (p._id === updatedPaper._id ? updatedPaper : p));
+        } else {
+          return [updatedPaper, ...prev];
+        }
+      });
+    });
+
+    socketClient.on("paperDeleted", (id: string) => {
+      setPapers((prev) => prev.filter((p) => p._id !== id));
+    });
+
+    return () => {
+      socketClient.disconnect();
+    };
+  }, [user, token]);
+
   useEffect(() => {
     fetchPapers();
-  }, [user, token, refreshFlag]);
+  }, [user, token]);
 
+  // -----------------------------
   // Submit draft/revision
+  // -----------------------------
   const handleSubmit = async (paperId: string) => {
     try {
-      await axios.patch(`${API_URL}/${paperId}/submit`, {}, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setRefreshFlag(prev => !prev);
-    } catch (err) {
+      const res = await axios.patch(
+        `${API_URL}/${paperId}/submit`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      alert("Paper submitted successfully");
+      // Update locally
+      setPapers((prev) =>
+        prev.map((p) => (p._id === paperId ? res.data.paper : p))
+      );
+    } catch (err: any) {
       console.error(err);
-      alert("Failed to submit paper");
+      alert(err.response?.data?.message || "Failed to submit paper");
     }
   };
 
-  // Open PDF
   const viewPdf = (url: string) => {
     if (!url) return alert("PDF not available");
     window.open(url, "_blank");
   };
 
-  // Status categories
   const pendingStatuses = ["draft", "revision_required"];
   const inProgressStatuses = ["pending_moderation"];
   const completedStatuses = ["pending_approval", "approved", "printed"];
+  const revisionRequiredPapers = papers.filter((p) => p.status === "revision_required");
 
-  // Papers needing revision
-  const revisionRequiredPapers = papers.filter(p => p.status === "revision_required");
-
+  // -----------------------------
+  // Render
+  // -----------------------------
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
@@ -115,7 +162,7 @@ const LecturerDashboard = () => {
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold">
-              {papers.filter(p => pendingStatuses.includes(p.status)).length}
+              {papers.filter((p) => pendingStatuses.includes(p.status)).length}
             </div>
           </CardContent>
         </Card>
@@ -127,7 +174,7 @@ const LecturerDashboard = () => {
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold">
-              {papers.filter(p => inProgressStatuses.includes(p.status)).length}
+              {papers.filter((p) => inProgressStatuses.includes(p.status)).length}
             </div>
           </CardContent>
         </Card>
@@ -139,7 +186,7 @@ const LecturerDashboard = () => {
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold">
-              {papers.filter(p => completedStatuses.includes(p.status)).length}
+              {papers.filter((p) => completedStatuses.includes(p.status)).length}
             </div>
           </CardContent>
         </Card>
@@ -152,7 +199,7 @@ const LecturerDashboard = () => {
             <CardTitle className="text-red-700">Revision Required</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {revisionRequiredPapers.map(paper => (
+            {revisionRequiredPapers.map((paper) => (
               <div
                 key={paper._id}
                 className="flex flex-col md:flex-row justify-between items-start md:items-center p-4 border rounded-lg hover:bg-red-50 transition"
@@ -164,7 +211,7 @@ const LecturerDashboard = () => {
                   </p>
 
                   {/* Moderation Comments */}
-                  {paper.moderationComments?.length > 0 && (
+                  {paper.moderationComments?.length ? (
                     <div className="text-sm text-yellow-800 mt-1 space-y-1">
                       {paper.moderationComments.map((c, i) => (
                         <p key={i}>
@@ -172,6 +219,8 @@ const LecturerDashboard = () => {
                         </p>
                       ))}
                     </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground mt-1">No comments yet</p>
                   )}
                 </div>
 
@@ -180,10 +229,8 @@ const LecturerDashboard = () => {
                     View PDF
                   </Button>
 
-                  <Link
-                    to={`/dashboard/create-paper?revisionId=${paper._id}`}
-                  >
-                    <Button size="sm">Create New Paper for Revision</Button>
+                  <Link to={`/dashboard/create-paper?revisionId=${paper._id}`}>
+                    <Button size="sm">Revise Paper</Button>
                   </Link>
 
                   <StatusBadge status={paper.status} />
@@ -201,8 +248,8 @@ const LecturerDashboard = () => {
         </CardHeader>
         <CardContent className="space-y-3">
           {papers
-            .filter(p => p.status !== "revision_required")
-            .map(paper => (
+            .filter((p) => p.status !== "revision_required")
+            .map((paper) => (
               <div
                 key={paper._id}
                 className="flex flex-col md:flex-row justify-between items-start md:items-center p-4 border rounded-lg hover:bg-muted/40 transition"

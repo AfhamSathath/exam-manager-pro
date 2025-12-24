@@ -8,6 +8,12 @@ import { Link } from "react-router-dom";
 import StatusBadge from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 
+interface ModerationComment {
+  commentByName: string;
+  comment: string;
+  createdAt?: string;
+}
+
 interface Paper {
   lecturerId: string;
   _id: string;
@@ -18,7 +24,8 @@ interface Paper {
   paperType: "exam" | "assessment";
   status: string;
   currentVersion: number;
-  signatures?: any[]; // optional now to avoid crash
+  signatures?: any[];
+  moderationComments?: ModerationComment[]; // optional
 }
 
 const MyPapers = () => {
@@ -36,7 +43,6 @@ const MyPapers = () => {
           headers: { Authorization: `Bearer ${token}` },
         });
         const data = await res.json();
-        // filter by lecturerId
         setPapers(data.filter((p: Paper) => String(p.lecturerId) === String(user.id)));
       } catch (err) {
         console.error(err);
@@ -68,8 +74,8 @@ const MyPapers = () => {
           <div className="grid gap-4">
             {papers.map((paper) => (
               <Card key={paper._id} className="hover:shadow-md transition-shadow">
-                <CardContent className="flex justify-between items-center">
-                  <div>
+                <CardContent className="flex justify-between items-start gap-4">
+                  <div className="flex-1">
                     <p className="font-semibold">
                       {paper.courseCode} - {paper.courseName}
                     </p>
@@ -77,7 +83,7 @@ const MyPapers = () => {
                       {paper.year} • {paper.semester} •{" "}
                       {paper.paperType === "exam" ? "Examination" : "Assessment"}
                     </p>
-                    <div className="flex items-center gap-4 mt-1">
+                    <div className="flex items-center gap-4 mt-1 flex-wrap">
                       <StatusBadge status={paper.status} />
                       <span className="text-xs text-muted-foreground">
                         Version {paper.currentVersion}
@@ -86,7 +92,23 @@ const MyPapers = () => {
                         {paper.signatures?.length ?? 0} signatures
                       </span>
                     </div>
+
+                    {/* Moderation / Reviewer Comments */}
+                    {paper.moderationComments && paper.moderationComments.length > 0 && (
+                      <div className="mt-2 space-y-1">
+                        <p className="text-sm font-semibold text-muted-foreground">
+                          Reviewer Comments:
+                        </p>
+                        {paper.moderationComments.map((c, idx) => (
+                          <p key={idx} className="text-xs text-muted-foreground">
+                            <span className="font-medium">{c.commentByName}:</span>{" "}
+                            {c.comment}
+                          </p>
+                        ))}
+                      </div>
+                    )}
                   </div>
+
                   <Link to={`/dashboard/papers/${paper._id}`}>
                     <Button variant="outline" size="sm">
                       <Eye className="w-4 h-4 mr-2" /> View

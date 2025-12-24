@@ -26,7 +26,7 @@ import { COURSES, YEARS, SEMESTERS, Year, Semester, PaperType } from "@/types";
 import StatusBadge from "@/components/StatusBadge";
 import { useLocation, useNavigate } from "react-router-dom";
 
-const API_URL = "http://localhost:5001/api/papers";
+const API_URL = import.meta.env.VITE_API_URL + "/papers";
 
 const CreatePaper = () => {
   const { user, token } = useAuth();
@@ -58,7 +58,6 @@ const CreatePaper = () => {
         const lecturerPapers = res.data.filter((p: any) => p.lecturerId === user.id);
         setPapers(lecturerPapers);
 
-        // If revisionId exists, fetch the paper to prefill data
         if (revisionId) {
           const revPaper = lecturerPapers.find((p) => p._id === revisionId);
           if (revPaper) {
@@ -115,7 +114,6 @@ const CreatePaper = () => {
 
     try {
       const payload = new FormData();
-      // For revisions, keep existing info, only upload PDF
       if (revisionPaper) {
         payload.append("year", revisionPaper.year);
         payload.append("semester", revisionPaper.semester);
@@ -136,13 +134,15 @@ const CreatePaper = () => {
         res = await axios.put(`${API_URL}/${revisionPaper._id}`, payload, {
           headers: { "Content-Type": "multipart/form-data", Authorization: `Bearer ${token}` },
         });
+        toast.success("Revision uploaded successfully!");
       } else {
         res = await axios.post(API_URL, payload, {
           headers: { "Content-Type": "multipart/form-data", Authorization: `Bearer ${token}` },
         });
+        toast.success(status === "draft" ? "Draft saved!" : "Submitted for review!");
       }
 
-      toast.success(status === "draft" ? "Draft saved!" : "Submitted for review!");
+      // Update paper list immediately
       setPapers((prev) => [res.data, ...prev]);
 
       // Reset form
@@ -154,7 +154,9 @@ const CreatePaper = () => {
       });
       setPdfFile(null);
       setRevisionPaper(null);
-      navigate("/dashboard");
+
+      // Navigate or stay on dashboard
+      navigate("/dashboard"); // or stay here if you prefer
     } catch (err: any) {
       console.error("CreatePaper Error:", err);
       toast.error(err.response?.data?.message || "Failed to upload paper");
@@ -181,6 +183,7 @@ const CreatePaper = () => {
           <CardContent className="space-y-6">
             {!revisionPaper && (
               <>
+                {/* Year & Semester */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <Label>Academic Year</Label>
@@ -196,9 +199,7 @@ const CreatePaper = () => {
                       </SelectTrigger>
                       <SelectContent>
                         {YEARS.map((y) => (
-                          <SelectItem key={y} value={y}>
-                            {y}
-                          </SelectItem>
+                          <SelectItem key={y} value={y}>{y}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -217,15 +218,14 @@ const CreatePaper = () => {
                       </SelectTrigger>
                       <SelectContent>
                         {SEMESTERS.map((s) => (
-                          <SelectItem key={s} value={s}>
-                            {s}
-                          </SelectItem>
+                          <SelectItem key={s} value={s}>{s}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </div>
                 </div>
 
+                {/* Course & Paper Type */}
                 <div>
                   <Label>Course</Label>
                   <Select
@@ -267,6 +267,7 @@ const CreatePaper = () => {
               </>
             )}
 
+            {/* PDF Upload */}
             <div>
               <Label>Upload PDF</Label>
               <Input
@@ -281,19 +282,20 @@ const CreatePaper = () => {
               )}
             </div>
 
+            {/* Buttons */}
             <div className="flex gap-4 pt-4">
               <Button
                 variant="outline"
                 onClick={() => handleSubmit("draft")}
                 className="flex-1"
-                disabled={isSubmitting}
+                disabled={isSubmitting || !pdfFile}
               >
                 <Save className="w-4 h-4 mr-2" /> Save Draft
               </Button>
               <Button
                 onClick={() => handleSubmit("pending_moderation")}
                 className="flex-1"
-                disabled={isSubmitting}
+                disabled={isSubmitting || !pdfFile}
               >
                 <Send className="w-4 h-4 mr-2" /> Submit for Review
               </Button>
@@ -301,7 +303,7 @@ const CreatePaper = () => {
           </CardContent>
         </Card>
 
-        {/* Live Paper List */}
+        {/* Your Papers List */}
         <Card>
           <CardHeader>
             <CardTitle>Your Papers</CardTitle>
