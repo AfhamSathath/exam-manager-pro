@@ -15,6 +15,7 @@ import {
   examinerApprovePaper,
   hodApprove,
   markAsPrinted,
+  getModeratedPapers,
 } from "../controllers/paperController.js";
 
 import { protect, authorize } from "../middleware/auth.js";
@@ -22,7 +23,7 @@ import { protect, authorize } from "../middleware/auth.js";
 const router = express.Router();
 
 // -----------------------------
-// Multer setup
+// Multer setup for file uploads
 // -----------------------------
 const uploadDir = path.join(process.cwd(), "uploads/papers");
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
@@ -53,9 +54,11 @@ router.patch("/:id/approve/examiner", protect, authorize("examiner"), examinerAp
 // -----------------------------
 router.patch("/:id/approve", protect, authorize("hod"), hodApprove);
 router.patch("/:id/print", protect, authorize("hod"), markAsPrinted);
+// GET ALL MODERATED PAPERS
+router.get("/moderated", protect, authorize("examiner", "hod"), getModeratedPapers);
 
 // -----------------------------
-// Public/Authenticated routes
+// Public / Authenticated routes
 // -----------------------------
 router.get("/", protect, getAllPapers);
 router.get("/:id", protect, getPaperById);

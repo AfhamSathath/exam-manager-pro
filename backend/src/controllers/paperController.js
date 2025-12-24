@@ -200,3 +200,20 @@ export const markAsPrinted = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
+
+// GET ALL MODERATED PAPERS (approved + rejected)
+export const getModeratedPapers = async (req, res) => {
+  try {
+    const papers = await Paper.find({
+      status: { $in: ["approved", "rejected"] },
+    })
+      .sort({ createdAt: -1 });
+
+    res.status(200).json(papers);
+  } catch (error) {
+    console.error("getModeratedPapers error:", error);
+    res.status(500).json({
+      message: "Failed to fetch moderated papers",
+    });
+  }
+};
