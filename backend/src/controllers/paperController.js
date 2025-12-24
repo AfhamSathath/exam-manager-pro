@@ -1,5 +1,6 @@
 // backend/src/controllers/paperController.js
 import Paper from "../models/paperModel.js";
+import User from "../models/userModel.js";
 import fs from "fs";
 
 // -----------------------------
@@ -228,3 +229,22 @@ export const getApprovedPapers = async (req, res) => {
     res.status(500).json({ message: "Failed to fetch approved papers" });
   }
 };
+
+
+
+export const getPendingApprovals = async (req, res) => {
+  try {
+    try {
+    const papers = await Paper.find({ status: "pending_approval", examinerApproved: true });
+    res.status(200).json(papers);
+  } catch (error) {
+    console.error("getPendingApprovals error:", error);
+    res.status(500).json({
+      message: "Failed to fetch pending approvals",
+    });
+  }
+} catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to fetch pending approvals" });
+  }
+}

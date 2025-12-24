@@ -9,6 +9,8 @@ import StatusBadge from "@/components/StatusBadge";
 const API_URL = import.meta.env.VITE_API_URL + "/papers";
 
 interface Paper {
+  examinerName: string;
+  lecturerName: string;
   _id: string;
   courseName: string;
   year: string;

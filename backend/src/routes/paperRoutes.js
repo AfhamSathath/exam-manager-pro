@@ -17,6 +17,7 @@ import {
   markAsPrinted,
   getModeratedPapers,
   getApprovedPapers,
+  getPendingApprovals,
 } from "../controllers/paperController.js";
 
 import { protect, authorize } from "../middleware/auth.js";
@@ -57,7 +58,7 @@ router.get("/hod/approved", protect, authorize("hod"), getApprovedPapers);
 router.get("/moderated", protect, authorize("examiner", "hod"), getModeratedPapers);
 router.patch("/:id/approve", protect, authorize("hod"), hodApprove);
 router.patch("/:id/print", protect, authorize("hod"), markAsPrinted);
-
+router.get('/id:/pending-approval', getPendingApprovals);
 // -----------------------------
 // Public / Authenticated routes
 // -----------------------------
