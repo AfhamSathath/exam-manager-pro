@@ -9,13 +9,13 @@ export const createPaper = async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ message: "PDF required" });
 
-    const { LecturerName, year, semester, courseName, paperType } = req.body;
+    const { year, semester, courseCode, courseName, paperType } = req.body;
     const pdfUrl = req.file.path.replace(process.cwd().replace(/\\/g, "/"), "").replace(/\\/g, "/");
 
     const paper = await Paper.create({
-      LecturerName,
       year,
       semester,
+      courseCode,
       courseName,
       paperType,
       pdfUrl,
@@ -57,7 +57,7 @@ export const updatePaper = async (req, res) => {
     const paper = await Paper.findById(req.params.id);
     if (!paper) return res.status(404).json({ message: "Paper not found" });
 
-    const { year, semester, courseName, paperType } = req.body;
+    
 
     // Delete old PDF if replaced
     if (req.file && paper.pdfUrl && fs.existsSync(paper.pdfUrl)) {
@@ -65,15 +65,13 @@ export const updatePaper = async (req, res) => {
     }
 
     if (req.file) paper.pdfUrl = req.file.path.replace(process.cwd().replace(/\\/g, "/"), "").replace(/\\/g, "/");
-    paper.year = year || paper.year;
-    paper.semester = semester || paper.semester;
-    paper.courseName = courseName || paper.courseName;
-    paper.paperType = paperType || paper.paperType;
+    
 
-    // Reset status for revision
+    // Reset status if new PDF uploaded
     if (req.file) paper.status = "pending_moderation";
 
     const updated = await paper.save();
+    req.app.get("io")?.emit("paperUpdated", updated);
     res.json(updated);
   } catch (err) {
     res.status(400).json({ message: err.message });
@@ -102,13 +100,28 @@ export const deletePaper = async (req, res) => {
 // -----------------------------
 export const getAllPapers = async (req, res) => {
   try {
-    const papers = await Paper.find().sort({ createdAt: -1 });
+    let query = {};
+    if (req.query.status) query.status = req.query.status;
+
+    if (req.user.role === "lecturer") query.lecturerId = req.user.id;
+    else if (req.user.role === "examiner") {
+      const courseCodes = req.user.courses?.map(c => c.code) || [];
+      query.courseCode = { $in: courseCodes };
+    }
+
+    const papers = await Paper.find(query)
+      .populate("lecturerId", "name")
+      .populate("examinerId", "name")
+      .sort({ createdAt: -1 });
     res.json(papers);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
+
+
+// GET single paper with role-based access
 export const getPaperById = async (req, res) => {
   try {
     const paper = await Paper.findById(req.params.id);
@@ -118,6 +131,7 @@ export const getPaperById = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
+
 
 // -----------------------------
 // Examiner: Request Revision
@@ -132,14 +146,16 @@ export const examinerModerationRequestRevision = async (req, res) => {
     if (!paper) return res.status(404).json({ message: "Paper not found" });
 
     paper.status = "revision_required";
+    paper.examinerId = req.user.id;
     paper.moderationComments = paper.moderationComments || [];
     paper.moderationComments.push({
-      commentByName: req.user.fullName,
+      commentByName: req.user.name,
       comment,
-      date: new Date(),
+      createdAt: new Date(),
     });
 
     await paper.save();
+    req.app.get("io")?.emit("paperUpdated", paper);
     res.json({ message: "Revision requested", paper });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -151,13 +167,14 @@ export const examinerModerationRequestRevision = async (req, res) => {
 // -----------------------------
 export const examinerApprovePaper = async (req, res) => {
   const { id } = req.params;
-
   try {
     const paper = await Paper.findById(id);
     if (!paper) return res.status(404).json({ message: "Paper not found" });
 
-    paper.status = "pending_approval"; // HOD approval next
+    paper.status = "pending_approval";
+    paper.examinerId = req.user.id;
     await paper.save();
+    req.app.get("io")?.emit("paperUpdated", paper);
     res.json({ message: "Paper approved by examiner", paper });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -175,9 +192,13 @@ export const hodApprove = async (req, res) => {
     if (paper.status !== "pending_approval")
       return res.status(400).json({ message: "Cannot approve this paper" });
 
-    paper.status = "approved";
-    await paper.save();
-    res.json({ message: "HOD approved paper", paper });
+    await Paper.updateOne({ _id: req.params.id }, { status: "approved" });
+    const updatedPaper = await Paper.findById(req.params.id)
+      .populate("lecturerId", "name")
+      .populate("examinerId", "name");
+
+    req.app.get("io")?.emit("paperUpdated", updatedPaper);
+    res.json({ message: "HOD approved paper", paper: updatedPaper });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -202,49 +223,69 @@ export const markAsPrinted = async (req, res) => {
   }
 };
 
-// GET ALL MODERATED PAPERS (approved + rejected)
+// -----------------------------
+// HOD: Pending Approvals
+// -----------------------------
+
+// Get papers pending HOD approval or approved
+export const getPendingApprovals = async (req, res) => {
+  try {
+    // Optional: you can filter by department or HOD if needed
+    const papers = await Paper.find({
+      status: { $in: ["pending_approval", "approved"] },
+    })
+      .populate("lecturerId", "name") // assuming you have lecturerId ref
+      .populate("examinerId", "name"); // assuming you have examinerId ref
+
+    // Transform data to match frontend interface
+    const formatted = papers.map(p => ({
+      _id: p._id,
+      courseName: p.courseName,
+      year: p.year,
+      semester: p.semester,
+      paperType: p.paperType,
+      pdfUrl: p.pdfUrl,
+      status: p.status,
+      lecturerName: p.lecturerId?.name || "N/A",
+      examinerName: p.examinerId?.name || "N/A",
+      moderationComments: p.moderationComments || [],
+    }));
+
+    res.status(200).json(formatted);
+  } catch (err) {
+    console.error("Error in getPendingApprovals:", err);
+    res.status(500).json({ message: "Server error fetching papers" });
+  }
+};
+
+// -----------------------------
+// Moderated Papers (approved + rejected)
+// -----------------------------
 export const getModeratedPapers = async (req, res) => {
   try {
     const papers = await Paper.find({
       status: { $in: ["approved", "rejected"] },
     })
+      .populate("lecturerId", "name")
+      .populate("examinerId", "name")
       .sort({ createdAt: -1 });
-
-    res.status(200).json(papers);
-  } catch (error) {
-    console.error("getModeratedPapers error:", error);
-    res.status(500).json({
-      message: "Failed to fetch moderated papers",
-    });
-  }
-};
-
-
-export const getApprovedPapers = async (req, res) => {
-  try {
-    const papers = await Paper.find({ status: "approved" }).sort({ updatedAt: -1 });
     res.json(papers);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Failed to fetch approved papers" });
+    res.status(500).json({ message: err.message });
   }
 };
 
-
-
-export const getPendingApprovals = async (req, res) => {
+// -----------------------------
+// Approved Papers (HOD / Public)
+// -----------------------------
+export const getApprovedPapers = async (req, res) => {
   try {
-    try {
-    const papers = await Paper.find({ status: "pending_approval", examinerApproved: true });
-    res.status(200).json(papers);
-  } catch (error) {
-    console.error("getPendingApprovals error:", error);
-    res.status(500).json({
-      message: "Failed to fetch pending approvals",
-    });
+    const papers = await Paper.find({ status: "approved" })
+      .populate("lecturerId", "name")
+      .populate("examinerId", "name")
+      .sort({ updatedAt: -1 });
+    res.json(papers);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
-} catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Failed to fetch pending approvals" });
-  }
-}
+};

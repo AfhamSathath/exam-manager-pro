@@ -31,13 +31,15 @@ export type PaperType = "exam" | "assessment";
 
 // User Interface
 export interface User {
-  _id: any;
+  name: string;
+  _id?: string;
   id: string;
   email: string;
   password: string;
   fullName: string;
   role: UserRole;
   department: Department;
+  courses?: { code: string; name: string }[];
   createdAt: string;
 }
 

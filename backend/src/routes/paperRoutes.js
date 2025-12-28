@@ -1,4 +1,3 @@
-// backend/src/routes/paperRoutes.js
 import express from "express";
 import multer from "multer";
 import fs from "fs";
@@ -35,13 +34,13 @@ const storage = multer.diskStorage({
   filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`),
 });
 
-const upload = multer({ storage });
+const uploads = multer({ storage });
 
 // -----------------------------
 // Lecturer routes
 // -----------------------------
-router.post("/", protect, authorize("lecturer"), upload.single("pdf"), createPaper);
-router.put("/:id", protect, authorize("lecturer"), upload.single("pdf"), updatePaper);
+router.post("/", protect, authorize("lecturer"), uploads.single("pdf"), createPaper);
+router.put("/:id", protect, authorize("lecturer"), uploads.single("pdf"), updatePaper);
 router.patch("/:id/submit", protect, authorize("lecturer"), submitPaper);
 router.delete("/:id", protect, authorize("lecturer"), deletePaper);
 
@@ -52,17 +51,27 @@ router.patch("/:id/revision", protect, authorize("examiner"), examinerModeration
 router.patch("/:id/approve/examiner", protect, authorize("examiner"), examinerApprovePaper);
 
 // -----------------------------
-// HOD routes (static routes FIRST)
+// HOD & Public routes (static FIRST)
 // -----------------------------
+router.get("/pending-approvals", protect, authorize("hod"), getPendingApprovals);
 router.get("/hod/approved", protect, authorize("hod"), getApprovedPapers);
 router.get("/moderated", protect, authorize("examiner", "hod"), getModeratedPapers);
 router.patch("/:id/approve", protect, authorize("hod"), hodApprove);
 router.patch("/:id/print", protect, authorize("hod"), markAsPrinted);
-router.get('/id:/pending-approval', getPendingApprovals);
+
 // -----------------------------
-// Public / Authenticated routes
+// Generic / dynamic routes (LAST)
 // -----------------------------
+router.get("/:id", protect, authorize(), getPaperById);
 router.get("/", protect, getAllPapers);
-router.get("/:id", protect, getPaperById);
+
+router.get("/hod/printed", protect, authorize("hod"), async (req, res) => {
+  try {
+    const papers = await Paper.find({ status: "printed" });
+    res.json(papers);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
 
 export default router;

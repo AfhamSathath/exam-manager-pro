@@ -20,7 +20,7 @@ const server = http.createServer(app);
 // Socket.IO setup
 // -----------------------------
 const io = new Server(server, {
-  cors: { origin: "http://localhost:8080", methods: ["GET", "POST", "PATCH"] },
+  cors: { origin: "*", methods: ["GET", "POST", "PATCH"] },
 });
 
 io.on("connection", (socket) => {

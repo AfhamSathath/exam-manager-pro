@@ -17,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   GraduationCap,
   User,
@@ -28,7 +29,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import axios from "axios";
-import { UserRole, Department, DEPARTMENTS } from "@/types";
+import { UserRole, Department, DEPARTMENTS, COURSES } from "@/types";
 
 const API_URL = "http://localhost:5001/api/auth";
 
@@ -49,7 +50,10 @@ const Register = () => {
     confirmPassword: "",
     role: "" as UserRole,
     department: "" as Department,
+    courses: [] as string[],
   });
+
+  const availableCourses = COURSES.filter(c => c.department === formData.department);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -74,6 +78,10 @@ const Register = () => {
         password: formData.password,
         role: formData.role,
         department: formData.department,
+        courses: formData.role === 'examiner' ? formData.courses.map(code => {
+          const course = COURSES.find(c => c.code === code);
+          return course ? { code: course.code, name: course.name } : null;
+        }).filter(Boolean) : undefined,
       });
 
       toast.success("Registration successful! Please login.");
@@ -221,6 +229,33 @@ const Register = () => {
                   </SelectContent>
                 </Select>
               </div>
+
+              {/* Courses for Examiner */}
+              {formData.role === 'examiner' && (
+                <div>
+                  <Label>Courses (for Examiner)</Label>
+                  <div className="space-y-2 mt-2">
+                    {availableCourses.map((course) => (
+                      <div key={course.code} className="flex items-center space-x-2">
+                        <Checkbox
+                          id={course.code}
+                          checked={formData.courses.includes(course.code)}
+                          onCheckedChange={(checked) => {
+                            if (checked) {
+                              setFormData({ ...formData, courses: [...formData.courses, course.code] });
+                            } else {
+                              setFormData({ ...formData, courses: formData.courses.filter(c => c !== course.code) });
+                            }
+                          }}
+                        />
+                        <label htmlFor={course.code} className="text-sm">
+                          {course.code} - {course.name}
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <Button
                 type="submit"

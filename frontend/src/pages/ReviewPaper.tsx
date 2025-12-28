@@ -36,6 +36,9 @@ const ReviewPaper = () => {
   const [comment, setComment] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const API_URL = import.meta.env.VITE_API_URL;
+  const FILE_URL = API_URL.replace('/api', '');
+
   if (!paper) {
     return (
       <DashboardLayout>
@@ -53,7 +56,7 @@ const ReviewPaper = () => {
     paper.status === 'pending_moderation' &&
     user?.role === 'examiner';
 
-  const pdfUrl = `/uploads/papers/${paper.content}`;
+  const pdfUrl = `${FILE_URL}/uploads/papers/${paper.content}`;
   const isPdf = paper.content?.toLowerCase().endsWith('.pdf');
 
   const handleApprove = () => {

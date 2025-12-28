@@ -7,7 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { FileText, CheckCircle, Clock, AlertCircle, Eye } from "lucide-react";
 import StatusBadge from "@/components/StatusBadge";
-import { io, Socket } from "socket.io-client";
+import { toast } from "sonner";
+import { io, type Socket } from "socket.io-client";
 
 const API_URL = import.meta.env.VITE_API_URL + "/papers";
 const FILE_URL = API_URL.replace('/api', '');
@@ -47,14 +48,14 @@ const LecturerDashboard = () => {
       const res = await axios.get(API_URL, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      const lecturerPapers = res.data.filter((p: Paper) => p.lecturerId === user.id);
+      const lecturerPapers = res.data;
       lecturerPapers.sort(
         (a: Paper, b: Paper) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
       setPapers(lecturerPapers);
     } catch (err) {
       console.error(err);
-      alert("Failed to fetch papers");
+      toast.error("Failed to fetch papers");
     } finally {
       setLoading(false);
     }
@@ -66,7 +67,7 @@ const LecturerDashboard = () => {
   useEffect(() => {
     if (!user || !token) return;
 
-    const socketClient: Socket = io(import.meta.env.VITE_API_URL, {
+    const socketClient: Socket = io(import.meta.env.VITE_API_URL.replace('/api', ''), {
       auth: { token },
     });
     setSocket(socketClient);
@@ -203,6 +204,18 @@ const LecturerDashboard = () => {
         </Card>
       </div>
 
+      {/* ===========================================
+          REVISION WORKFLOW:
+          1. Examiner reviews paper and requests revision with comments
+          2. Paper status changes to "revision_required"
+          3. Lecturer sees paper in "Revision Required" section
+          4. Lecturer clicks "Revise Paper" -> navigates to CreatePaper with revisionId
+          5. CreatePaper form shows only PDF upload (other details preserved)
+          6. Lecturer uploads new PDF, form submits to updatePaper endpoint
+          7. Backend keeps existing metadata, updates PDF URL, resets status to "pending_moderation"
+          8. Paper goes back to examiner for re-moderation
+          =========================================== */}
+
       {/* Revision Required Section */}
       {revisionRequiredPapers.length > 0 && (
         <Card className="border-red-400">
@@ -296,3 +309,6 @@ const LecturerDashboard = () => {
 };
 
 export default LecturerDashboard;
+
+
+

@@ -8,6 +8,7 @@ const userSchema = new mongoose.Schema({
   password: { type: String, required: true },
   role: { type: String, enum: ["lecturer", "examiner", "hod", "admin"], default: "lecturer" },
   department: { type: String, required: true }, // important: used by HOD filtering
+  courses: [{ code: String, name: String }], // for examiner and lecturer specific courses
 }, { timestamps: true });
 
 // hash password before save

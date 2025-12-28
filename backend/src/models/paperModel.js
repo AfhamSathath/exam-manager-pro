@@ -13,6 +13,10 @@ const paperSchema = new mongoose.Schema(
       required: [true, "Please select the semester"],
       enum: ["1st Semester", "2nd Semester"],
     },
+    courseCode: {
+      type: String,
+      required: [true, "Please select the course code"],
+    },
     courseName: {
       type: String,
       required: [true, "Please select the course name"],
@@ -25,6 +29,15 @@ const paperSchema = new mongoose.Schema(
     pdfUrl: {
       type: String,
       required: [true, "PDF file is required"],
+    },
+    lecturerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
+    },
+    examinerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
     },
     status: {
       type: String,

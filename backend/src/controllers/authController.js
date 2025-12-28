@@ -8,11 +8,16 @@ const genToken = (id) => jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: "
 // ===== Register User =====
 export const register = async (req, res) => {
   try {
-    const { name, email, password, department, role } = req.body;
+    const { name, email, password, department, role, courses } = req.body;
 
     // Check required fields
     if (!name || !email || !password || !department) {
       return res.status(400).json({ message: "Please fill all required fields" });
+    }
+
+    // For examiner, courses are required
+    if (role === 'examiner' && (!courses || courses.length === 0)) {
+      return res.status(400).json({ message: "Courses are required for examiner" });
     }
 
     // Check if user already exists
@@ -20,7 +25,7 @@ export const register = async (req, res) => {
     if (exists) return res.status(400).json({ message: "User already exists" });
 
     // Create new user
-    const user = await User.create({ name, email, password, department, role });
+    const user = await User.create({ name, email, password, department, role, courses: courses || [] });
 
     // Return token and user info
     res.status(201).json({
@@ -31,6 +36,7 @@ export const register = async (req, res) => {
         email: user.email,
         role: user.role,
         department: user.department,
+        courses: user.courses,
       },
     });
   } catch (err) {

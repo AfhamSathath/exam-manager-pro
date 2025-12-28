@@ -21,7 +21,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { FileText, Send, Save, Calendar, BookOpen } from "lucide-react";
-import axios from "axios";
+import axios, { AxiosResponse } from "axios";
 import { COURSES, YEARS, SEMESTERS, Year, Semester, PaperType } from "@/types";
 import StatusBadge from "@/components/StatusBadge";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -87,6 +87,14 @@ const CreatePaper = () => {
   const selectedCourse = COURSES.find((c) => c.code === formData.courseCode);
 
   const validate = () => {
+    if (!pdfFile) {
+      toast.error("Please upload a PDF file");
+      return false;
+    }
+    if (!user) {
+      toast.error("User not authenticated");
+      return false;
+    }
     if (!revisionPaper) {
       if (!formData.year || !formData.semester) {
         toast.error("Please select year and semester");
@@ -97,14 +105,6 @@ const CreatePaper = () => {
         return false;
       }
     }
-    if (!pdfFile) {
-      toast.error("Please upload a PDF file");
-      return false;
-    }
-    if (!user) {
-      toast.error("User not authenticated");
-      return false;
-    }
     return true;
   };
 
@@ -114,49 +114,53 @@ const CreatePaper = () => {
 
     try {
       const payload = new FormData();
-      if (revisionPaper) {
-        payload.append("year", revisionPaper.year);
-        payload.append("semester", revisionPaper.semester);
-        payload.append("courseName", revisionPaper.courseName);
-        payload.append("paperType", revisionPaper.paperType);
-      } else {
-        payload.append("year", formData.year);
-        payload.append("semester", formData.semester);
-        payload.append("courseName", selectedCourse!.name);
-        payload.append("paperType", formData.paperType);
-      }
       payload.append("pdf", pdfFile!);
       payload.append("status", status);
-      payload.append("lecturerId", user!.id);
 
-      let res;
+      let res: AxiosResponse<any, any, {}>;
       if (revisionPaper) {
+        // Only update PDF for revision
         res = await axios.put(`${API_URL}/${revisionPaper._id}`, payload, {
           headers: { "Content-Type": "multipart/form-data", Authorization: `Bearer ${token}` },
         });
-        toast.success("Revision uploaded successfully!");
+        toast.success("Revision PDF uploaded successfully!");
       } else {
+        // Normal create paper
+        payload.append("year", formData.year);
+        payload.append("semester", formData.semester);
+        payload.append("courseCode", selectedCourse!.code);
+        payload.append("courseName", selectedCourse!.name);
+        payload.append("paperType", formData.paperType);
+        payload.append("lecturerId", user!.id);
+
         res = await axios.post(API_URL, payload, {
           headers: { "Content-Type": "multipart/form-data", Authorization: `Bearer ${token}` },
         });
         toast.success(status === "draft" ? "Draft saved!" : "Submitted for review!");
       }
 
-      // Update paper list immediately
-      setPapers((prev) => [res.data, ...prev]);
+      // Update paper list
+      setPapers((prev) => {
+        if (revisionPaper) {
+          return prev.map((p) => (p._id === revisionPaper._id ? res.data : p));
+        } else {
+          return [res.data, ...prev];
+        }
+      });
 
       // Reset form
-      setFormData({
-        year: "" as Year,
-        semester: "" as Semester,
-        courseCode: "",
-        paperType: "exam" as PaperType,
-      });
+      if (!revisionPaper) {
+        setFormData({
+          year: "" as Year,
+          semester: "" as Semester,
+          courseCode: "",
+          paperType: "exam" as PaperType,
+        });
+      }
       setPdfFile(null);
       setRevisionPaper(null);
 
-      // Navigate or stay on dashboard
-      navigate("/dashboard"); // or stay here if you prefer
+      if (!revisionPaper) navigate("/dashboard");
     } catch (err: any) {
       console.error("CreatePaper Error:", err);
       toast.error(err.response?.data?.message || "Failed to upload paper");
@@ -181,6 +185,7 @@ const CreatePaper = () => {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
+            {/* Show selections only when not in revision mode */}
             {!revisionPaper && (
               <>
                 {/* Year & Semester */}
@@ -267,7 +272,7 @@ const CreatePaper = () => {
               </>
             )}
 
-            {/* PDF Upload */}
+            {/* PDF Upload (always visible) */}
             <div>
               <Label>Upload PDF</Label>
               <Input
@@ -328,7 +333,16 @@ const CreatePaper = () => {
                       </p>
                     </div>
                   </div>
-                  <StatusBadge status={paper.status} />
+                  <div className="flex items-center gap-2">
+                    <StatusBadge status={paper.status} />
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => navigate(`/create-paper?revisionId=${paper._id}`)}
+                    >
+                      Revision
+                    </Button>
+                  </div>
                 </div>
               ))
             )}

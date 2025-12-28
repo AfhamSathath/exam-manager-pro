@@ -10,6 +10,7 @@ const API_URL = import.meta.env.VITE_API_URL + "/papers";
 const FILE_URL = import.meta.env.VITE_API_URL.replace('/api', '');
 
 interface Paper {
+  lecturerId: any;
   _id: string;
   courseName: string;
   year: string;
@@ -117,6 +118,9 @@ const ExaminerDashboard = () => {
                 <StatusBadge status={paper.status} />
               </CardHeader>
               <CardContent className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  Lecturer: {paper.lecturerId?.name || paper.lecturerId}
+                </p>
                 <p className="text-sm text-muted-foreground">
                   {paper.year} • {paper.semester} • {paper.paperType}
                 </p>

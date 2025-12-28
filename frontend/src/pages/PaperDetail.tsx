@@ -17,7 +17,8 @@ interface ModerationComment {
 
 interface Paper {
   _id: string;
-  lecturerId: string;
+  lecturerId: string | { name: string; _id: string };
+  examinerId?: string | { name: string; _id: string };
   courseCode: string;
   courseName: string;
   year: string;
@@ -32,36 +33,42 @@ interface Paper {
 const PaperDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { user, token } = useAuth();
+  const { token } = useAuth();
 
   const [paper, setPaper] = useState<Paper | null>(null);
-  const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
 
   const API_URL = import.meta.env.VITE_API_URL;
-  const FILE_URL = API_URL.replace('/api', '');
+  const FILE_URL = API_URL.replace("/api", "");
 
-  // Fetch single paper
-  useEffect(() => {
+  // Fetch paper by ID
+  const fetchPaper = async () => {
     if (!id || !token) return;
 
-    const fetchPaper = async () => {
-      try {
-        setLoading(true);
-        const res = await axios.get(`${API_URL}/papers/${id}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        setPaper(res.data);
-      } catch (err) {
-        console.error(err);
+    try {
+      setLoading(true);
+      const res = await axios.get(`${API_URL}/papers/${id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setPaper(res.data);
+    } catch (err: any) {
+      console.error(err);
+      if (err.response?.status === 403) {
+        toast.error("You do not have permission to view this paper");
+      } else if (err.response?.status === 404) {
+        toast.error("Paper not found");
+      } else {
         toast.error("Failed to fetch paper");
-        setPaper(null);
-      } finally {
-        setLoading(false);
       }
-    };
+      setPaper(null);
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  useEffect(() => {
     fetchPaper();
   }, [id, token]);
 
@@ -108,7 +115,7 @@ const PaperDetail = () => {
     return (
       <DashboardLayout>
         <div className="text-center py-10">
-          <h2 className="text-xl font-semibold">Paper not found</h2>
+          <h2 className="text-xl font-semibold">Paper not found or access denied</h2>
           <Button variant="link" onClick={() => navigate(-1)}>
             Go back
           </Button>
@@ -117,7 +124,10 @@ const PaperDetail = () => {
     );
   }
 
-  const normalizedPdfUrl = paper.pdfUrl.startsWith('E:') ? paper.pdfUrl.replace('E:/exam-manager-pro-main-main/backend', '') : paper.pdfUrl;
+  const normalizedPdfUrl =
+    paper.pdfUrl.startsWith("E:")
+      ? paper.pdfUrl.replace("E:/exam-manager-pro-main-main/backend", "")
+      : paper.pdfUrl;
   const pdfUrl = `${FILE_URL}${encodeURI(normalizedPdfUrl)}`;
 
   return (
@@ -128,6 +138,7 @@ const PaperDetail = () => {
           Back
         </Button>
 
+        {/* Paper Info */}
         <div>
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold">{paper.courseCode}</h1>
@@ -135,11 +146,12 @@ const PaperDetail = () => {
           </div>
           <p className="text-muted-foreground">{paper.courseName}</p>
           <p className="text-sm text-muted-foreground">
+            Lecturer: {typeof paper.lecturerId === "object" ? paper.lecturerId.name : paper.lecturerId}
+          </p>
+          <p className="text-sm text-muted-foreground">
             {paper.year} • {paper.semester} • {paper.paperType === "exam" ? "Exam" : "Assessment"}
           </p>
-          <p className="text-xs text-muted-foreground mt-1">
-            Version {paper.currentVersion}
-          </p>
+          <p className="text-xs text-muted-foreground mt-1">Version {paper.currentVersion}</p>
         </div>
 
         {/* PDF Actions */}
@@ -160,11 +172,7 @@ const PaperDetail = () => {
         </div>
 
         {/* PDF Preview */}
-        <iframe
-          src={pdfUrl}
-          className="w-full h-[650px] border rounded"
-          title="PDF Preview"
-        />
+        <iframe src={pdfUrl} className="w-full h-[650px] border rounded" title="PDF Preview" />
 
         {/* Moderation Comments */}
         {paper.moderationComments && paper.moderationComments.length > 0 && (
@@ -178,8 +186,23 @@ const PaperDetail = () => {
           </div>
         )}
 
-       
-        
+        {/* Upload Revision */}
+        <div className="mt-6">
+          <h3 className="font-semibold mb-2">Upload Revision (PDF only)</h3>
+          <Input
+            type="file"
+            accept="application/pdf"
+            onChange={(e) => setPdfFile(e.target.files?.[0] || null)}
+          />
+          <Button
+            className="mt-2"
+            onClick={handleRevisionUpload}
+            disabled={submitting || !pdfFile}
+          >
+            <Upload className="w-4 h-4 mr-2" />
+            {submitting ? "Uploading..." : "Upload Revision"}
+          </Button>
+        </div>
       </div>
     </DashboardLayout>
   );

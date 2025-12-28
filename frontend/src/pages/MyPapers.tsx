@@ -7,6 +7,7 @@ import { FileText, Eye } from "lucide-react";
 import { Link } from "react-router-dom";
 import StatusBadge from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
+import { io, type Socket } from "socket.io-client";
 
 interface ModerationComment {
   commentByName: string;
@@ -32,6 +33,7 @@ const MyPapers = () => {
   const { user, token } = useAuth();
   const [papers, setPapers] = useState<Paper[]>([]);
   const [loading, setLoading] = useState(true);
+  const [socket, setSocket] = useState<Socket | null>(null);
 
   useEffect(() => {
     if (!user || !token) return;
@@ -43,7 +45,7 @@ const MyPapers = () => {
           headers: { Authorization: `Bearer ${token}` },
         });
         const data = await res.json();
-        setPapers(data.filter((p: Paper) => String(p.lecturerId) === String(user.id)));
+        setPapers(data);
       } catch (err) {
         console.error(err);
       } finally {
@@ -52,6 +54,35 @@ const MyPapers = () => {
     };
 
     fetchPapers();
+  }, [user, token]);
+
+  // Socket.IO setup
+  useEffect(() => {
+    if (!user || !token) return;
+
+    const socketClient: Socket = io(import.meta.env.VITE_API_URL.replace('/api', ''), {
+      auth: { token },
+    });
+    setSocket(socketClient);
+
+    socketClient.on("paperUpdated", (updatedPaper: Paper) => {
+      setPapers((prev) => {
+        const exists = prev.find((p) => p._id === updatedPaper._id);
+        if (exists) {
+          return prev.map((p) => (p._id === updatedPaper._id ? updatedPaper : p));
+        } else {
+          return [updatedPaper, ...prev];
+        }
+      });
+    });
+
+    socketClient.on("paperDeleted", (id: string) => {
+      setPapers((prev) => prev.filter((p) => p._id !== id));
+    });
+
+    return () => {
+      socketClient.disconnect();
+    };
   }, [user, token]);
 
   if (!user)

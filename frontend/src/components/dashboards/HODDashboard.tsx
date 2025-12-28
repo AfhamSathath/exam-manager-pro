@@ -2,16 +2,15 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import axios from "axios";
+import { io } from "socket.io-client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import StatusBadge from "@/components/StatusBadge";
 
 const API_URL = import.meta.env.VITE_API_URL + "/papers";
-const FILE_URL = import.meta.env.VITE_API_URL.replace('/api', '');
+const FILE_URL = import.meta.env.VITE_API_URL?.replace("/api", "");
 
 interface Paper {
-  examinerName: string;
-  lecturerName: string;
   _id: string;
   courseName: string;
   year: string;
@@ -19,6 +18,8 @@ interface Paper {
   paperType: string;
   pdfUrl: string;
   status: string;
+  lecturerName?: string;
+  examinerName?: string;
   moderationComments?: { commentByName: string; comment: string }[];
 }
 
@@ -27,22 +28,18 @@ const HODDashboard = () => {
   const [papers, setPapers] = useState<Paper[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Fetch papers pending HOD approval or already approved (for printing)
+  // Fetch initial papers
   const fetchPapers = async () => {
     if (!user || !token) return;
     setLoading(true);
     try {
-      const res = await axios.get(API_URL, {
+      const res = await axios.get(`${API_URL}/pending-approvals`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      // Only papers pending approval or approved (for printing)
-      const filtered = res.data.filter(
-        (p: Paper) => p.status === "pending_approval" || p.status === "approved"
-      );
-      setPapers(filtered);
-    } catch (err) {
+      setPapers(res.data);
+    } catch (err: any) {
       console.error("Error fetching papers:", err);
-      alert("Failed to fetch papers");
+      alert(err.response?.data?.message || "Failed to fetch papers");
     } finally {
       setLoading(false);
     }
@@ -52,57 +49,93 @@ const HODDashboard = () => {
     fetchPapers();
   }, [user, token]);
 
-  // Approve paper (HOD)
+  // Connect to Socket.IO
+  useEffect(() => {
+  const socket = io(import.meta.env.VITE_API_URL!.replace("/api", ""));
+
+  socket.on("connect", () => console.log("Connected to socket server:", socket.id));
+
+  socket.on("paperUpdated", (updatedPaper: Paper) => {
+    setPapers(prev => {
+      if (updatedPaper.status === "printed") {
+        return prev.filter(p => p._id !== updatedPaper._id);
+      }
+      const exists = prev.find(p => p._id === updatedPaper._id);
+      if (exists) {
+        return prev.map(p => (p._id === updatedPaper._id ? updatedPaper : p));
+      }
+      return [...prev, updatedPaper];
+    });
+  });
+
+  return () => {
+    socket.disconnect(); // ✅ Wrapped in a void function
+  };
+}, []);
+
+
+  // Approve paper
   const approvePaper = async (id: string) => {
+    if (!token) {
+      alert("Authentication required");
+      return;
+    }
     try {
       const res = await axios.patch(
         `${API_URL}/${id}/approve`,
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      // Update paper status in state
       setPapers(prev =>
         prev.map(p => (p._id === id ? { ...p, status: res.data.paper.status } : p))
       );
       alert("Paper approved successfully");
-    } catch (err) {
-      console.error(err);
-      alert("Failed to approve paper");
+    } catch (err: any) {
+      console.error("Error approving paper:", err);
+      alert(err.response?.data?.message || "Failed to approve paper");
     }
   };
 
-  // Mark paper as printed (HOD)
+  // Mark paper as printed
   const printPaper = async (id: string) => {
+    if (!token) {
+      alert("Authentication required");
+      return;
+    }
     try {
-      const res = await axios.patch(
+      await axios.patch(
         `${API_URL}/${id}/print`,
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      // Remove printed paper from dashboard
-      setPapers(prev => prev.filter(p => p._id !== id));
+      // Paper removal is handled via Socket.IO
       alert("Paper marked as printed");
     } catch (err: any) {
-      console.error(err);
+      console.error("Error marking paper as printed:", err);
       alert(err.response?.data?.message || "Failed to mark as printed");
     }
   };
 
-  // Open PDF
+  // View PDF
   const viewPdf = (url: string) => {
-    if (!url) return alert("PDF not available");
-    let fullUrl;
-    if (url.startsWith('http')) {
-      fullUrl = url;
-    } else if (url.startsWith('/')) {
-      fullUrl = `${FILE_URL}${url}`;
-    } else {
-      // Assume full path starting with E:
-      const normalizedUrl = url.replace('E:/exam-manager-pro-main-main/backend', '');
-      fullUrl = `${FILE_URL}${normalizedUrl}`;
+    if (!url) {
+      alert("PDF not available");
+      return;
     }
-    window.open(fullUrl, "_blank");
+
+    let fullUrl = url;
+    if (url.startsWith("http")) fullUrl = url;
+    else if (url.startsWith("/")) fullUrl = FILE_URL + url;
+    else if (FILE_URL) fullUrl = `${FILE_URL}${url.replace(/^.*backend[\\/]/, "/")}`;
+    else fullUrl = import.meta.env.VITE_API_URL?.replace("/api", "") + url;
+
+    window.open(fullUrl, "_blank", "noopener,noreferrer");
   };
+
+  // Show only pending or approved papers
+  const filteredPapers = papers.filter(
+    paper => paper.status === "pending_approval" || paper.status === "approved"
+  );
 
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
@@ -115,13 +148,13 @@ const HODDashboard = () => {
         <div className="flex items-center justify-center h-32">
           <p className="text-muted-foreground animate-pulse">Loading papers...</p>
         </div>
-      ) : papers.length === 0 ? (
+      ) : filteredPapers.length === 0 ? (
         <div className="flex flex-col items-center justify-center p-12 border-2 border-dashed rounded-lg">
           <p className="text-muted-foreground">No papers pending approval or printing</p>
         </div>
       ) : (
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {papers.map(paper => (
+          {filteredPapers.map(paper => (
             <Card key={paper._id} className="overflow-hidden shadow-sm">
               <CardHeader className="bg-muted/30 pb-4">
                 <div className="flex justify-between items-start">
@@ -131,6 +164,8 @@ const HODDashboard = () => {
               </CardHeader>
               <CardContent className="pt-4 space-y-4">
                 <div className="text-sm text-muted-foreground space-y-1">
+                  <p><strong>Lecturer:</strong> {paper.lecturerName || "N/A"}</p>
+                  <p><strong>Examiner:</strong> {paper.examinerName || "N/A"}</p>
                   <p><strong>Year:</strong> {paper.year}</p>
                   <p><strong>Semester:</strong> {paper.semester}</p>
                   <p><strong>Type:</strong> {paper.paperType}</p>
