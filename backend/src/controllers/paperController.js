@@ -1,6 +1,5 @@
 // backend/src/controllers/paperController.js
 import Paper from "../models/paperModel.js";
-import User from "../models/userModel.js";
 import fs from "fs";
 
 // -----------------------------
@@ -10,10 +9,11 @@ export const createPaper = async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ message: "PDF required" });
 
-    const { year, semester, courseName, paperType } = req.body;
-    const pdfUrl = req.file.path.replace(/\\/g, "/");
+    const { LecturerName, year, semester, courseName, paperType } = req.body;
+    const pdfUrl = req.file.path.replace(process.cwd().replace(/\\/g, "/"), "").replace(/\\/g, "/");
 
     const paper = await Paper.create({
+      LecturerName,
       year,
       semester,
       courseName,
@@ -64,7 +64,7 @@ export const updatePaper = async (req, res) => {
       fs.unlinkSync(paper.pdfUrl);
     }
 
-    if (req.file) paper.pdfUrl = req.file.path.replace(/\\/g, "/");
+    if (req.file) paper.pdfUrl = req.file.path.replace(process.cwd().replace(/\\/g, "/"), "").replace(/\\/g, "/");
     paper.year = year || paper.year;
     paper.semester = semester || paper.semester;
     paper.courseName = courseName || paper.courseName;

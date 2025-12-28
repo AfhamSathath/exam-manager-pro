@@ -40,6 +40,7 @@ const PaperDetail = () => {
   const [submitting, setSubmitting] = useState(false);
 
   const API_URL = import.meta.env.VITE_API_URL;
+  const FILE_URL = API_URL.replace('/api', '');
 
   // Fetch single paper
   useEffect(() => {
@@ -116,7 +117,8 @@ const PaperDetail = () => {
     );
   }
 
-  const pdfUrl = `${API_URL}${encodeURI(paper.pdfUrl)}`;
+  const normalizedPdfUrl = paper.pdfUrl.startsWith('E:') ? paper.pdfUrl.replace('E:/exam-manager-pro-main-main/backend', '') : paper.pdfUrl;
+  const pdfUrl = `${FILE_URL}${encodeURI(normalizedPdfUrl)}`;
 
   return (
     <DashboardLayout>

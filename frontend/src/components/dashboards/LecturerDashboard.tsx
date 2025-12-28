@@ -10,6 +10,7 @@ import StatusBadge from "@/components/StatusBadge";
 import { io, Socket } from "socket.io-client";
 
 const API_URL = import.meta.env.VITE_API_URL + "/papers";
+const FILE_URL = API_URL.replace('/api', '');
 
 interface ModerationComment {
   commentByName: string;
@@ -117,7 +118,17 @@ const LecturerDashboard = () => {
 
   const viewPdf = (url: string) => {
     if (!url) return alert("PDF not available");
-    window.open(url, "_blank");
+    let fullUrl;
+    if (url.startsWith('http')) {
+      fullUrl = url;
+    } else if (url.startsWith('/')) {
+      fullUrl = `${FILE_URL}${url}`;
+    } else {
+      // Assume full path starting with E:
+      const normalizedUrl = url.replace('E:/exam-manager-pro-main-main/backend', '');
+      fullUrl = `${FILE_URL}${normalizedUrl}`;
+    }
+    window.open(fullUrl, "_blank");
   };
 
   const pendingStatuses = ["draft", "revision_required"];
