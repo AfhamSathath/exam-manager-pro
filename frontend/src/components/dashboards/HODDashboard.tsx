@@ -1,14 +1,14 @@
-// frontend/src/pages/HODDashboard.tsx
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import axios from "axios";
-import { io } from "socket.io-client";
+import { io, type Socket } from "socket.io-client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import StatusBadge from "@/components/StatusBadge";
+import { toast } from "sonner";
 
 const API_URL = import.meta.env.VITE_API_URL + "/papers";
-const FILE_URL = import.meta.env.VITE_API_URL?.replace("/api", "");
+const FILE_BASE_URL = import.meta.env.VITE_API_URL?.replace("/api", "");
 
 interface Paper {
   _id: string;
@@ -27,8 +27,8 @@ const HODDashboard = () => {
   const { user, token } = useAuth();
   const [papers, setPapers] = useState<Paper[]>([]);
   const [loading, setLoading] = useState(true);
+  const [socket, setSocket] = useState<Socket | null>(null);
 
-  // Fetch initial papers
   const fetchPapers = async () => {
     if (!user || !token) return;
     setLoading(true);
@@ -39,7 +39,7 @@ const HODDashboard = () => {
       setPapers(res.data);
     } catch (err: any) {
       console.error("Error fetching papers:", err);
-      alert(err.response?.data?.message || "Failed to fetch papers");
+      toast.error(err.response?.data?.message || "Failed to fetch papers");
     } finally {
       setLoading(false);
     }
@@ -49,93 +49,77 @@ const HODDashboard = () => {
     fetchPapers();
   }, [user, token]);
 
-  // Connect to Socket.IO
+  // Socket.IO
   useEffect(() => {
-  const socket = io(import.meta.env.VITE_API_URL!.replace("/api", ""));
-
-  socket.on("connect", () => console.log("Connected to socket server:", socket.id));
-
-  socket.on("paperUpdated", (updatedPaper: Paper) => {
-    setPapers(prev => {
-      if (updatedPaper.status === "printed") {
-        return prev.filter(p => p._id !== updatedPaper._id);
-      }
-      const exists = prev.find(p => p._id === updatedPaper._id);
-      if (exists) {
-        return prev.map(p => (p._id === updatedPaper._id ? updatedPaper : p));
-      }
-      return [...prev, updatedPaper];
+    if (!user || !token) return;
+  
+    const socket = io(FILE_BASE_URL, {
+      auth: { token },
     });
-  });
-
-  return () => {
-    socket.disconnect(); // ✅ Wrapped in a void function
-  };
-}, []);
-
+  
+    socket.on("paperUpdated", (updatedPaper: Paper) => {
+      setPapers((prev) => {
+        const exists = prev.find((p) => p._id === updatedPaper._id);
+        return exists
+          ? prev.map((p) =>
+              p._id === updatedPaper._id ? updatedPaper : p
+            )
+          : [updatedPaper, ...prev];
+      });
+    });
+  
+    socket.on("paperDeleted", (id: string) => {
+      setPapers((prev) => prev.filter((p) => p._id !== id));
+    });
+  
+    // ✅ MUST return a function (not the socket)
+    return () => {
+      socket.disconnect();
+    };
+  }, [user, token]);
 
   // Approve paper
   const approvePaper = async (id: string) => {
-    if (!token) {
-      alert("Authentication required");
-      return;
-    }
+    if (!token) return toast.error("Authentication required");
     try {
-      const res = await axios.patch(
-        `${API_URL}/${id}/approve`,
-        {},
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      setPapers(prev =>
-        prev.map(p => (p._id === id ? { ...p, status: res.data.paper.status } : p))
-      );
-      alert("Paper approved successfully");
+      const res = await axios.patch(`${API_URL}/${id}/approve`, {}, { headers: { Authorization: `Bearer ${token}` } });
+      setPapers(prev => prev.map(p => (p._id === id ? { ...p, status: res.data.paper.status } : p)));
+      toast.success("Paper approved successfully");
     } catch (err: any) {
       console.error("Error approving paper:", err);
-      alert(err.response?.data?.message || "Failed to approve paper");
+      toast.error(err.response?.data?.message || "Failed to approve paper");
     }
   };
 
   // Mark paper as printed
   const printPaper = async (id: string) => {
-    if (!token) {
-      alert("Authentication required");
-      return;
-    }
+    if (!token) return toast.error("Authentication required");
     try {
-      await axios.patch(
-        `${API_URL}/${id}/print`,
-        {},
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      // Paper removal is handled via Socket.IO
-      alert("Paper marked as printed");
+      await axios.patch(`${API_URL}/${id}/print`, {}, { headers: { Authorization: `Bearer ${token}` } });
+      toast.success("Paper marked as printed");
     } catch (err: any) {
       console.error("Error marking paper as printed:", err);
-      alert(err.response?.data?.message || "Failed to mark as printed");
+      toast.error(err.response?.data?.message || "Failed to mark as printed");
     }
   };
 
-  // View PDF
-  const viewPdf = (url: string) => {
-    if (!url) {
-      alert("PDF not available");
-      return;
+  // View PDF (inline logic)
+  const viewPdf = (pdfUrl: string) => {
+    if (!pdfUrl) return toast.error("PDF not available");
+
+    let fullUrl = pdfUrl.replace(/\\/g, "/");
+
+    if (!fullUrl.startsWith("http") && !fullUrl.startsWith("/")) {
+      const idx = fullUrl.indexOf("/uploads/");
+      if (idx !== -1) fullUrl = fullUrl.substring(idx);
+      else return toast.error("PDF path invalid");
     }
 
-    let fullUrl = url;
-    if (url.startsWith("http")) fullUrl = url;
-    else if (url.startsWith("/")) fullUrl = FILE_URL + url;
-    else if (FILE_URL) fullUrl = `${FILE_URL}${url.replace(/^.*backend[\\/]/, "/")}`;
-    else fullUrl = import.meta.env.VITE_API_URL?.replace("/api", "") + url;
-
+    if (!fullUrl.startsWith("http")) fullUrl = `${FILE_BASE_URL}${fullUrl}`;
     window.open(fullUrl, "_blank", "noopener,noreferrer");
   };
 
-  // Show only pending or approved papers
-  const filteredPapers = papers.filter(
-    paper => paper.status === "pending_approval" || paper.status === "approved"
-  );
+  const filteredPapers = papers.filter(paper => paper.status === "pending_approval" || paper.status === "approved");
 
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
@@ -171,7 +155,7 @@ const HODDashboard = () => {
                   <p><strong>Type:</strong> {paper.paperType}</p>
                 </div>
 
-                {paper.moderationComments && paper.moderationComments.length > 0 && (
+                {paper.moderationComments?.length > 0 && (
                   <div className="p-3 bg-amber-50 rounded-md border border-amber-100">
                     <p className="text-xs font-bold text-amber-800 mb-1">Moderator Comments:</p>
                     {paper.moderationComments.map((c, i) => (
@@ -193,12 +177,7 @@ const HODDashboard = () => {
                       </Button>
                     )}
                     {paper.status === "approved" && (
-                      <Button
-                        className="flex-1"
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => printPaper(paper._id)}
-                      >
+                      <Button className="flex-1" size="sm" variant="secondary" onClick={() => printPaper(paper._id)}>
                         Mark Printed
                       </Button>
                     )}

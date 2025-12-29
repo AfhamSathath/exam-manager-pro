@@ -1,4 +1,3 @@
-// frontend/src/pages/PaperDetail.tsx
 import { useParams, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
@@ -41,14 +40,13 @@ const PaperDetail = () => {
   const [pdfFile, setPdfFile] = useState<File | null>(null);
 
   const API_URL = import.meta.env.VITE_API_URL;
-  const FILE_URL = API_URL.replace("/api", "");
+  const FILE_BASE_URL = API_URL.replace("/api", "");
 
   // Fetch paper by ID
   const fetchPaper = async () => {
     if (!id || !token) return;
-
+    setLoading(true);
     try {
-      setLoading(true);
       const res = await axios.get(`${API_URL}/papers/${id}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -103,6 +101,36 @@ const PaperDetail = () => {
     }
   };
 
+  const getPdfUrl = (pdfUrl: string) => {
+    if (!pdfUrl) return "";
+    let url = pdfUrl.replace(/\\/g, "/"); // normalize slashes
+
+    // Remove backend path if present
+    if (url.startsWith("E:/") || url.startsWith("e:/")) {
+      const idx = url.indexOf("/uploads/");
+      url = idx !== -1 ? url.substring(idx) : url;
+    }
+
+    // Ensure full URL
+    if (!url.startsWith("http")) url = `${FILE_BASE_URL}${url}`;
+    return encodeURI(url);
+  };
+
+  const openPdf = (pdfUrl: string) => {
+    const url = getPdfUrl(pdfUrl);
+    if (!url) return toast.error("PDF not available");
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
+
+  const downloadPdf = (pdfUrl: string) => {
+    const url = getPdfUrl(pdfUrl);
+    if (!url) return toast.error("PDF not available");
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = url.split("/").pop() || "paper.pdf";
+    link.click();
+  };
+
   if (loading) {
     return (
       <DashboardLayout>
@@ -124,11 +152,7 @@ const PaperDetail = () => {
     );
   }
 
-  const normalizedPdfUrl =
-    paper.pdfUrl.startsWith("E:")
-      ? paper.pdfUrl.replace("E:/exam-manager-pro-main-main/backend", "")
-      : paper.pdfUrl;
-  const pdfUrl = `${FILE_URL}${encodeURI(normalizedPdfUrl)}`;
+  const pdfUrl = getPdfUrl(paper.pdfUrl);
 
   return (
     <DashboardLayout>
@@ -156,18 +180,14 @@ const PaperDetail = () => {
 
         {/* PDF Actions */}
         <div className="flex gap-3">
-          <Button asChild variant="outline">
-            <a href={pdfUrl} target="_blank" rel="noopener noreferrer">
-              <ExternalLink className="w-4 h-4 mr-2" />
-              Open PDF
-            </a>
+          <Button variant="outline" onClick={() => openPdf(pdfUrl)}>
+            <ExternalLink className="w-4 h-4 mr-2" />
+            Open PDF
           </Button>
 
-          <Button asChild>
-            <a href={pdfUrl} download>
-              <Download className="w-4 h-4 mr-2" />
-              Download
-            </a>
+          <Button onClick={() => downloadPdf(pdfUrl)}>
+            <Download className="w-4 h-4 mr-2" />
+            Download
           </Button>
         </div>
 

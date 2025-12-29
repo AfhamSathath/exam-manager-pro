@@ -10,13 +10,17 @@ import StatusBadge from "@/components/StatusBadge";
 import { toast } from "sonner";
 import { io, type Socket } from "socket.io-client";
 
-const API_URL = import.meta.env.VITE_API_URL + "/papers";
-const FILE_URL = API_URL.replace('/api', '');
+/**
+ * ENV:
+ * VITE_API_URL = http://localhost:5001/api
+ */
+const API_URL = `${import.meta.env.VITE_API_URL}/papers`;
+const FILE_BASE_URL = import.meta.env.VITE_API_URL.replace(/\/api$/, "");
 
 interface ModerationComment {
   commentByName: string;
   comment: string;
-  date: string;
+  createdAt: string;
 }
 
 interface Paper {
@@ -36,23 +40,25 @@ const LecturerDashboard = () => {
   const { user, token } = useAuth();
   const [papers, setPapers] = useState<Paper[]>([]);
   const [loading, setLoading] = useState(true);
-  const [socket, setSocket] = useState<Socket | null>(null);
 
   // -----------------------------
   // Fetch papers
   // -----------------------------
   const fetchPapers = async () => {
     if (!user || !token) return;
+
     setLoading(true);
     try {
       const res = await axios.get(API_URL, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      const lecturerPapers = res.data;
-      lecturerPapers.sort(
-        (a: Paper, b: Paper) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+
+      const sorted = [...res.data].sort(
+        (a: Paper, b: Paper) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
-      setPapers(lecturerPapers);
+
+      setPapers(sorted);
     } catch (err) {
       console.error(err);
       toast.error("Failed to fetch papers");
@@ -62,42 +68,46 @@ const LecturerDashboard = () => {
   };
 
   // -----------------------------
-  // Socket.IO setup
+  // Socket.IO
   // -----------------------------
-  useEffect(() => {
-    if (!user || !token) return;
+  // -----------------------------
+// Socket.IO (TS FIXED)
+// -----------------------------
+useEffect(() => {
+  if (!user || !token) return;
 
-    const socketClient: Socket = io(import.meta.env.VITE_API_URL.replace('/api', ''), {
-      auth: { token },
+  const socket = io(FILE_BASE_URL, {
+    auth: { token },
+  });
+
+  socket.on("paperUpdated", (updatedPaper: Paper) => {
+    setPapers((prev) => {
+      const exists = prev.find((p) => p._id === updatedPaper._id);
+      return exists
+        ? prev.map((p) =>
+            p._id === updatedPaper._id ? updatedPaper : p
+          )
+        : [updatedPaper, ...prev];
     });
-    setSocket(socketClient);
+  });
 
-    socketClient.on("paperUpdated", (updatedPaper: Paper) => {
-      setPapers((prev) => {
-        const exists = prev.find((p) => p._id === updatedPaper._id);
-        if (exists) {
-          return prev.map((p) => (p._id === updatedPaper._id ? updatedPaper : p));
-        } else {
-          return [updatedPaper, ...prev];
-        }
-      });
-    });
+  socket.on("paperDeleted", (id: string) => {
+    setPapers((prev) => prev.filter((p) => p._id !== id));
+  });
 
-    socketClient.on("paperDeleted", (id: string) => {
-      setPapers((prev) => prev.filter((p) => p._id !== id));
-    });
+  // ✅ MUST return a function (not the socket)
+  return () => {
+    socket.disconnect();
+  };
+}, [user, token]);
 
-    return () => {
-      socketClient.disconnect();
-    };
-  }, [user, token]);
 
   useEffect(() => {
     fetchPapers();
   }, [user, token]);
 
   // -----------------------------
-  // Submit draft/revision
+  // Submit paper
   // -----------------------------
   const handleSubmit = async (paperId: string) => {
     try {
@@ -106,36 +116,46 @@ const LecturerDashboard = () => {
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      alert("Paper submitted successfully");
-      // Update locally
+
+      toast.success("Paper submitted successfully");
       setPapers((prev) =>
         prev.map((p) => (p._id === paperId ? res.data.paper : p))
       );
     } catch (err: any) {
-      console.error(err);
-      alert(err.response?.data?.message || "Failed to submit paper");
+      toast.error(err.response?.data?.message || "Failed to submit paper");
     }
   };
 
-  const viewPdf = (url: string) => {
-    if (!url) return alert("PDF not available");
-    let fullUrl;
-    if (url.startsWith('http')) {
-      fullUrl = url;
-    } else if (url.startsWith('/')) {
-      fullUrl = `${FILE_URL}${url}`;
-    } else {
-      // Assume full path starting with E:
-      const normalizedUrl = url.replace('E:/exam-manager-pro-main-main/backend', '');
-      fullUrl = `${FILE_URL}${normalizedUrl}`;
+  // -----------------------------
+  // View PDF (🔥 FULLY FIXED 🔥)
+  // -----------------------------
+  const viewPdf = (pdfUrl: string) => {
+    if (!pdfUrl) {
+      toast.error("PDF not available");
+      return;
     }
-    window.open(fullUrl, "_blank");
+
+    let normalizedUrl = pdfUrl.replace(/\\/g, "/");
+
+    // ✅ Handle OLD database values (E:/.../uploads/...)
+    if (!normalizedUrl.startsWith("/")) {
+      const idx = normalizedUrl.indexOf("/uploads/");
+      if (idx === -1) {
+        toast.error("Invalid PDF path stored");
+        return;
+      }
+      normalizedUrl = normalizedUrl.substring(idx);
+    }
+
+    window.open(`${FILE_BASE_URL}${normalizedUrl}`, "_blank");
   };
 
   const pendingStatuses = ["draft", "revision_required"];
   const inProgressStatuses = ["pending_moderation"];
   const completedStatuses = ["pending_approval", "approved", "printed"];
-  const revisionRequiredPapers = papers.filter((p) => p.status === "revision_required");
+  const revisionRequiredPapers = papers.filter(
+    (p) => p.status === "revision_required"
+  );
 
   // -----------------------------
   // Render
@@ -143,90 +163,57 @@ const LecturerDashboard = () => {
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold">Welcome back, {user?.fullName}</h1>
-          <p className="text-muted-foreground mt-1">Manage your examination papers</p>
+          <h1 className="text-3xl font-bold">
+            Welcome back, {user?.fullName}
+          </h1>
+          <p className="text-muted-foreground">
+            Manage your examination papers
+          </p>
         </div>
+
         <Link to="/dashboard/create-paper">
           <Button>
-            <FileText className="w-4 h-4 mr-2" /> Create Paper
+            <FileText className="w-4 h-4 mr-2" />
+            Create Paper
           </Button>
         </Link>
       </div>
 
-      {/* Paper Stats */}
+      {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card>
-          <CardHeader className="flex justify-between items-center pb-2">
-            <CardTitle className="text-sm text-muted-foreground">Total Papers</CardTitle>
-            <FileText className="w-5 h-5 text-primary" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">{papers.length}</div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex justify-between items-center pb-2">
-            <CardTitle className="text-sm text-muted-foreground">Pending Action</CardTitle>
-            <Clock className="w-5 h-5 text-warning" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">
-              {papers.filter((p) => pendingStatuses.includes(p.status)).length}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex justify-between items-center pb-2">
-            <CardTitle className="text-sm text-muted-foreground">In Progress</CardTitle>
-            <AlertCircle className="w-5 h-5 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">
-              {papers.filter((p) => inProgressStatuses.includes(p.status)).length}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex justify-between items-center pb-2">
-            <CardTitle className="text-sm text-muted-foreground">Completed</CardTitle>
-            <CheckCircle className="w-5 h-5 text-success" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">
-              {papers.filter((p) => completedStatuses.includes(p.status)).length}
-            </div>
-          </CardContent>
-        </Card>
+        <StatCard title="Total Papers" value={papers.length} icon={<FileText />} />
+        <StatCard
+          title="Pending Action"
+          value={papers.filter((p) => pendingStatuses.includes(p.status)).length}
+          icon={<Clock />}
+        />
+        <StatCard
+          title="In Progress"
+          value={papers.filter((p) => inProgressStatuses.includes(p.status)).length}
+          icon={<AlertCircle />}
+        />
+        <StatCard
+          title="Completed"
+          value={papers.filter((p) => completedStatuses.includes(p.status)).length}
+          icon={<CheckCircle />}
+        />
       </div>
 
-      {/* ===========================================
-          REVISION WORKFLOW:
-          1. Examiner reviews paper and requests revision with comments
-          2. Paper status changes to "revision_required"
-          3. Lecturer sees paper in "Revision Required" section
-          4. Lecturer clicks "Revise Paper" -> navigates to CreatePaper with revisionId
-          5. CreatePaper form shows only PDF upload (other details preserved)
-          6. Lecturer uploads new PDF, form submits to updatePaper endpoint
-          7. Backend keeps existing metadata, updates PDF URL, resets status to "pending_moderation"
-          8. Paper goes back to examiner for re-moderation
-          =========================================== */}
-
-      {/* Revision Required Section */}
+      {/* Revision Required */}
       {revisionRequiredPapers.length > 0 && (
         <Card className="border-red-400">
           <CardHeader>
-            <CardTitle className="text-red-700">Revision Required</CardTitle>
+            <CardTitle className="text-red-700">
+              Revision Required
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             {revisionRequiredPapers.map((paper) => (
               <div
                 key={paper._id}
-                className="flex flex-col md:flex-row justify-between items-start md:items-center p-4 border rounded-lg hover:bg-red-50 transition"
+                className="flex flex-col md:flex-row justify-between p-4 border rounded-lg"
               >
                 <div>
                   <p className="font-medium">{paper.courseName}</p>
@@ -234,27 +221,24 @@ const LecturerDashboard = () => {
                     {paper.year} • {paper.semester} • {paper.paperType}
                   </p>
 
-                  {/* Moderation Comments */}
-                  {paper.moderationComments?.length ? (
-                    <div className="text-sm text-yellow-800 mt-1 space-y-1">
-                      {paper.moderationComments.map((c, i) => (
-                        <p key={i}>
-                          <strong>{c.commentByName}:</strong> {c.comment}
-                        </p>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground mt-1">No comments yet</p>
-                  )}
+                  {paper.moderationComments?.map((c, i) => (
+                    <p key={i} className="text-sm text-yellow-800">
+                      <strong>{c.commentByName}:</strong> {c.comment}
+                    </p>
+                  ))}
                 </div>
 
-                <div className="flex flex-col md:flex-row items-start md:items-center gap-2 mt-2 md:mt-0">
-                  <Button size="sm" variant="outline" onClick={() => viewPdf(paper.pdfUrl)}>
+                <div className="flex gap-2 mt-2 md:mt-0">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => viewPdf(paper.pdfUrl)}
+                  >
                     View PDF
                   </Button>
 
                   <Link to={`/dashboard/create-paper?revisionId=${paper._id}`}>
-                    <Button size="sm">Revise Paper</Button>
+                    <Button size="sm">Revise</Button>
                   </Link>
 
                   <StatusBadge status={paper.status} />
@@ -265,7 +249,7 @@ const LecturerDashboard = () => {
         </Card>
       )}
 
-      {/* All Other Papers */}
+      {/* All Papers */}
       <Card>
         <CardHeader>
           <CardTitle>All Papers</CardTitle>
@@ -276,7 +260,7 @@ const LecturerDashboard = () => {
             .map((paper) => (
               <div
                 key={paper._id}
-                className="flex flex-col md:flex-row justify-between items-start md:items-center p-4 border rounded-lg hover:bg-muted/40 transition"
+                className="flex justify-between p-4 border rounded-lg"
               >
                 <div>
                   <p className="font-medium">{paper.courseName}</p>
@@ -285,19 +269,21 @@ const LecturerDashboard = () => {
                   </p>
                 </div>
 
-                <div className="flex flex-col md:flex-row items-start md:items-center gap-2 mt-2 md:mt-0">
-                  <Link to={`/dashboard/papers/${paper._id}`}>
-                    <Button variant="outline" size="sm">
-                      <Eye className="w-4 h-4 mr-2" /> View
-                    </Button>
-                  </Link>
+                <div className="flex gap-2 mt-2 md:mt-0">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => viewPdf(paper.pdfUrl)}
+                  >
+                    View PDF
+                  </Button>
+                  
 
                   {pendingStatuses.includes(paper.status) && (
                     <Button size="sm" onClick={() => handleSubmit(paper._id)}>
                       {paper.status === "draft" ? "Submit" : "Resubmit"}
                     </Button>
                   )}
-
                   <StatusBadge status={paper.status} />
                 </div>
               </div>
@@ -308,7 +294,24 @@ const LecturerDashboard = () => {
   );
 };
 
+const StatCard = ({
+  title,
+  value,
+  icon,
+}: {
+  title: string;
+  value: number;
+  icon: React.ReactNode;
+}) => (
+  <Card>
+    <CardHeader className="flex justify-between items-center pb-2">
+      <CardTitle className="text-sm text-muted-foreground">{title}</CardTitle>
+      {icon}
+    </CardHeader>
+    <CardContent>
+      <div className="text-3xl font-bold">{value}</div>
+    </CardContent>
+  </Card>
+);
+
 export default LecturerDashboard;
-
-
-

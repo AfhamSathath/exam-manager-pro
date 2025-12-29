@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent } from "@/components/ui/card";
-import { FileText, Eye } from "lucide-react";
+import { Eye, ExternalLink, Download } from "lucide-react";
 import { Link } from "react-router-dom";
 import StatusBadge from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
@@ -26,7 +26,8 @@ interface Paper {
   status: string;
   currentVersion: number;
   signatures?: any[];
-  moderationComments?: ModerationComment[]; // optional
+  moderationComments?: ModerationComment[];
+  pdfUrl?: string;
 }
 
 const MyPapers = () => {
@@ -35,12 +36,41 @@ const MyPapers = () => {
   const [loading, setLoading] = useState(true);
   const [socket, setSocket] = useState<Socket | null>(null);
 
+  const FILE_BASE_URL = import.meta.env.VITE_API_URL.replace("/api", "");
+
+  // Normalize PDF URL
+  const getPdfUrl = (pdfUrl: string) => {
+    if (!pdfUrl) return "";
+    let url = pdfUrl.replace(/\\/g, "/");
+    if (url.startsWith("E:/") || url.startsWith("e:/")) {
+      const idx = url.indexOf("/uploads/");
+      url = idx !== -1 ? url.substring(idx) : url;
+    }
+    if (!url.startsWith("http")) url = `${FILE_BASE_URL}${url}`;
+    return encodeURI(url);
+  };
+
+  const openPdf = (pdfUrl: string) => {
+    const url = getPdfUrl(pdfUrl);
+    if (!url) return alert("PDF not available");
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
+
+  const downloadPdf = (pdfUrl: string) => {
+    const url = getPdfUrl(pdfUrl);
+    if (!url) return alert("PDF not available");
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = url.split("/").pop() || "paper.pdf";
+    link.click();
+  };
+
+  // Fetch papers
   useEffect(() => {
     if (!user || !token) return;
-
     const fetchPapers = async () => {
+      setLoading(true);
       try {
-        setLoading(true);
         const res = await fetch(`${import.meta.env.VITE_API_URL}/papers`, {
           headers: { Authorization: `Bearer ${token}` },
         });
@@ -52,39 +82,39 @@ const MyPapers = () => {
         setLoading(false);
       }
     };
-
     fetchPapers();
   }, [user, token]);
 
   // Socket.IO setup
   useEffect(() => {
     if (!user || !token) return;
-
-    const socketClient: Socket = io(import.meta.env.VITE_API_URL.replace('/api', ''), {
+  
+    const socket = io(FILE_BASE_URL, {
       auth: { token },
     });
-    setSocket(socketClient);
-
-    socketClient.on("paperUpdated", (updatedPaper: Paper) => {
+  
+    socket.on("paperUpdated", (updatedPaper: Paper) => {
       setPapers((prev) => {
         const exists = prev.find((p) => p._id === updatedPaper._id);
-        if (exists) {
-          return prev.map((p) => (p._id === updatedPaper._id ? updatedPaper : p));
-        } else {
-          return [updatedPaper, ...prev];
-        }
+        return exists
+          ? prev.map((p) =>
+              p._id === updatedPaper._id ? updatedPaper : p
+            )
+          : [updatedPaper, ...prev];
       });
     });
-
-    socketClient.on("paperDeleted", (id: string) => {
+  
+    socket.on("paperDeleted", (id: string) => {
       setPapers((prev) => prev.filter((p) => p._id !== id));
     });
-
+  
+    // ✅ MUST return a function (not the socket)
     return () => {
-      socketClient.disconnect();
+      socket.disconnect();
     };
   }, [user, token]);
-
+  
+  
   if (!user)
     return (
       <DashboardLayout>
@@ -124,7 +154,6 @@ const MyPapers = () => {
                       </span>
                     </div>
 
-                    {/* Moderation / Reviewer Comments */}
                     {paper.moderationComments && paper.moderationComments.length > 0 && (
                       <div className="mt-2 space-y-1">
                         <p className="text-sm font-semibold text-muted-foreground">
@@ -132,19 +161,29 @@ const MyPapers = () => {
                         </p>
                         {paper.moderationComments.map((c, idx) => (
                           <p key={idx} className="text-xs text-muted-foreground">
-                            <span className="font-medium">{c.commentByName}:</span>{" "}
-                            {c.comment}
+                            <span className="font-medium">{c.commentByName}:</span> {c.comment}
                           </p>
                         ))}
                       </div>
                     )}
                   </div>
 
-                  <Link to={`/dashboard/papers/${paper._id}`}>
-                    <Button variant="outline" size="sm">
-                      <Eye className="w-4 h-4 mr-2" /> View
-                    </Button>
-                  </Link>
+                  <div className="flex flex-col gap-2">
+                    <Link to={`/dashboard/papers/${paper._id}`}>
+                      
+                    </Link>
+
+                    {paper.pdfUrl && (
+                      <div className="flex gap-2 mt-1">
+                        <Button size="sm" variant="outline" onClick={() => openPdf(paper.pdfUrl!)}>
+                          <ExternalLink className="w-4 h-4 mr-2" /> Open PDF
+                        </Button>
+                        <Button size="sm" onClick={() => downloadPdf(paper.pdfUrl!)}>
+                          <Download className="w-4 h-4 mr-2" /> Download
+                        </Button>
+                      </div>
+                    )}
+                  </div>
                 </CardContent>
               </Card>
             ))}

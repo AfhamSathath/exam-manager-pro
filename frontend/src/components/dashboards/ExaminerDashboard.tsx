@@ -1,13 +1,13 @@
-// frontend/src/pages/ExaminerDashboard.tsx
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import axios from "axios";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import StatusBadge from "@/components/StatusBadge";
+import { toast } from "sonner";
 
 const API_URL = import.meta.env.VITE_API_URL + "/papers";
-const FILE_URL = import.meta.env.VITE_API_URL.replace('/api', '');
+const FILE_BASE_URL = import.meta.env.VITE_API_URL.replace("/api", "");
 
 interface Paper {
   lecturerId: any;
@@ -27,7 +27,6 @@ const ExaminerDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [comments, setComments] = useState<{ [key: string]: string }>({});
 
-  // Fetch papers pending moderation
   const fetchPapers = async () => {
     if (!user || !token) return;
     setLoading(true);
@@ -39,7 +38,7 @@ const ExaminerDashboard = () => {
       setPapers(pending);
     } catch (err) {
       console.error(err);
-      alert("Failed to fetch papers");
+      toast.error("Failed to fetch papers");
     } finally {
       setLoading(false);
     }
@@ -63,10 +62,10 @@ const ExaminerDashboard = () => {
         delete copy[id];
         return copy;
       });
-      alert("Revision requested successfully");
+      toast.success("Revision requested successfully");
     } catch (err) {
       console.error(err);
-      alert("Failed to request revision");
+      toast.error("Failed to request revision");
     }
   };
 
@@ -79,26 +78,27 @@ const ExaminerDashboard = () => {
         { headers: { Authorization: `Bearer ${token}` } }
       );
       setPapers(prev => prev.filter(p => p._id !== id));
-      alert("Paper approved successfully");
+      toast.success("Paper approved successfully");
     } catch (err) {
       console.error(err);
-      alert("Failed to approve paper");
+      toast.error("Failed to approve paper");
     }
   };
 
-  const viewPdf = (url: string) => {
-    if (!url) return alert("PDF not available");
-    let fullUrl;
-    if (url.startsWith('http')) {
-      fullUrl = url;
-    } else if (url.startsWith('/')) {
-      fullUrl = `${FILE_URL}${url}`;
-    } else {
-      // Assume full path starting with E:
-      const normalizedUrl = url.replace('E:/exam-manager-pro-main-main/backend', '');
-      fullUrl = `${FILE_URL}${normalizedUrl}`;
+  // View PDF
+  const viewPdf = (pdfUrl: string) => {
+    if (!pdfUrl) return toast.error("PDF not available");
+
+    let fullUrl = pdfUrl.replace(/\\/g, "/"); // Normalize backslashes
+
+    if (!fullUrl.startsWith("http") && !fullUrl.startsWith("/")) {
+      const idx = fullUrl.indexOf("/uploads/");
+      if (idx !== -1) fullUrl = fullUrl.substring(idx);
+      else return toast.error("PDF path invalid");
     }
-    window.open(fullUrl, "_blank");
+
+    if (!fullUrl.startsWith("http")) fullUrl = `${FILE_BASE_URL}${fullUrl}`;
+    window.open(fullUrl, "_blank", "noopener,noreferrer");
   };
 
   return (
@@ -157,7 +157,11 @@ const ExaminerDashboard = () => {
                     Request Revision
                   </Button>
 
-                  <Button size="sm" className="bg-slate-900 text-white" onClick={() => approvePaper(paper._id)}>
+                  <Button
+                    size="sm"
+                    className="bg-slate-900 text-white"
+                    onClick={() => approvePaper(paper._id)}
+                  >
                     Approve
                   </Button>
                 </div>
