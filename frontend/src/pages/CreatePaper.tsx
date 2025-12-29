@@ -117,7 +117,7 @@ const CreatePaper = () => {
         payload.append("lecturerId", user!.id);
 
         await axios.post(API_URL, payload, config);
-        toast.success(status === "draft" ? "Draft saved" : "Submitted successfully");
+        toast.success(status === "draft" ? "Draft saved" : "Paper created successfully need to moderation");
       }
 
       navigate("/dashboard");
@@ -249,7 +249,7 @@ const CreatePaper = () => {
                 ) : (
                   <>
                     <Send className="w-4 h-4 mr-2" />
-                    {isRevisionMode ? "Upload Revision" : "Submit Paper"}
+                    {isRevisionMode ? "Upload Revision" : "Create the Paper "}
                   </>
                 )}
               </Button>

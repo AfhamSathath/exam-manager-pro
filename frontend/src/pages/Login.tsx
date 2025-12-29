@@ -11,7 +11,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { GraduationCap, Mail, Lock, ArrowRight } from "lucide-react";
+import { GraduationCap, Mail, Lock, Eye, EyeOff, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 
 const Login = () => {
@@ -21,6 +21,7 @@ const Login = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false); // 👈 Added
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -89,19 +90,30 @@ const Login = () => {
               </div>
 
               {/* Password */}
-              <div className="space-y-2">
+              <div className="space-y-2 relative">
                 <Label htmlFor="password">Password</Label>
                 <div className="relative">
                   <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                   <Input
                     id="password"
-                    type="password"
+                    type={showPassword ? "text" : "password"} // 👈 toggle
                     placeholder="Enter your password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="pl-10"
+                    className="pl-10 pr-10"
                     required
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-2 top-3 text-muted-foreground"
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </button>
                 </div>
               </div>
 
@@ -128,9 +140,6 @@ const Login = () => {
                 </Link>
               </p>
             </div>
-
-           
-            
           </CardContent>
         </Card>
       </div>

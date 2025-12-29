@@ -23,8 +23,8 @@ import {
   User,
   Mail,
   Lock,
-  Building,
-  UserCog,
+  Eye,
+  EyeOff,
   ArrowRight,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -42,6 +42,8 @@ const ROLES: { value: UserRole; label: string }[] = [
 const Register = () => {
   const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const [formData, setFormData] = useState({
     fullName: "",
@@ -53,7 +55,9 @@ const Register = () => {
     courses: [] as string[],
   });
 
-  const availableCourses = COURSES.filter(c => c.department === formData.department);
+  const availableCourses = COURSES.filter(
+    (c) => c.department === formData.department
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -78,18 +82,21 @@ const Register = () => {
         password: formData.password,
         role: formData.role,
         department: formData.department,
-        courses: formData.role === 'examiner' ? formData.courses.map(code => {
-          const course = COURSES.find(c => c.code === code);
-          return course ? { code: course.code, name: course.name } : null;
-        }).filter(Boolean) : undefined,
+        courses:
+          formData.role === "examiner"
+            ? formData.courses
+                .map((code) => {
+                  const course = COURSES.find((c) => c.code === code);
+                  return course ? { code: course.code, name: course.name } : null;
+                })
+                .filter(Boolean)
+            : undefined,
       });
 
       toast.success("Registration successful! Please login.");
       navigate("/login");
     } catch (err: any) {
-      toast.error(
-        err.response?.data?.message || "Registration failed"
-      );
+      toast.error(err.response?.data?.message || "Registration failed");
     } finally {
       setIsLoading(false);
     }
@@ -112,9 +119,7 @@ const Register = () => {
 
         <Card className="shadow-lg border-0">
           <CardHeader>
-            <CardTitle className="text-2xl text-center">
-              Register
-            </CardTitle>
+            <CardTitle className="text-2xl text-center">Register</CardTitle>
             <CardDescription className="text-center">
               Fill in your details to create an account
             </CardDescription>
@@ -159,30 +164,54 @@ const Register = () => {
 
               {/* Passwords */}
               <div className="grid grid-cols-2 gap-4">
-                <div>
+                {/* Password */}
+                <div className="relative">
                   <Label>Password</Label>
                   <Input
-                    type="password"
+                    type={showPassword ? "text" : "password"}
                     value={formData.password}
                     onChange={(e) =>
                       setFormData({ ...formData, password: e.target.value })
                     }
                     required
+                    className="pr-10"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-2 top-9 text-muted-foreground"
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </button>
                 </div>
-                <div>
+
+                {/* Confirm Password */}
+                <div className="relative">
                   <Label>Confirm</Label>
                   <Input
-                    type="password"
+                    type={showConfirmPassword ? "text" : "password"}
                     value={formData.confirmPassword}
                     onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        confirmPassword: e.target.value,
-                      })
+                      setFormData({ ...formData, confirmPassword: e.target.value })
                     }
                     required
+                    className="pr-10"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute right-2 top-9 text-muted-foreground"
+                  >
+                    {showConfirmPassword ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </button>
                 </div>
               </div>
 
@@ -231,20 +260,31 @@ const Register = () => {
               </div>
 
               {/* Courses for Examiner */}
-              {formData.role === 'examiner' && (
+              {formData.role === "examiner" && (
                 <div>
                   <Label>Courses (for Examiner)</Label>
                   <div className="space-y-2 mt-2">
                     {availableCourses.map((course) => (
-                      <div key={course.code} className="flex items-center space-x-2">
+                      <div
+                        key={course.code}
+                        className="flex items-center space-x-2"
+                      >
                         <Checkbox
                           id={course.code}
                           checked={formData.courses.includes(course.code)}
                           onCheckedChange={(checked) => {
                             if (checked) {
-                              setFormData({ ...formData, courses: [...formData.courses, course.code] });
+                              setFormData({
+                                ...formData,
+                                courses: [...formData.courses, course.code],
+                              });
                             } else {
-                              setFormData({ ...formData, courses: formData.courses.filter(c => c !== course.code) });
+                              setFormData({
+                                ...formData,
+                                courses: formData.courses.filter(
+                                  (c) => c !== course.code
+                                ),
+                              });
                             }
                           }}
                         />
@@ -257,11 +297,7 @@ const Register = () => {
                 </div>
               )}
 
-              <Button
-                type="submit"
-                className="w-full"
-                disabled={isLoading}
-              >
+              <Button type="submit" className="w-full" disabled={isLoading}>
                 {isLoading ? "Creating account..." : "Create Account"}
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
