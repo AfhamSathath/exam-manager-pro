@@ -17,6 +17,7 @@ import {
   getModeratedPapers,
   getApprovedPapers,
   getPendingApprovals,
+  revisePaper,
 } from "../controllers/paperController.js";
 
 import { protect, authorize } from "../middleware/auth.js";
@@ -43,6 +44,7 @@ router.post("/", protect, authorize("lecturer"), uploads.single("pdf"), createPa
 router.put("/:id", protect, authorize("lecturer"), uploads.single("pdf"), updatePaper);
 router.patch("/:id/submit", protect, authorize("lecturer"), submitPaper);
 router.delete("/:id", protect, authorize("lecturer"), deletePaper);
+router.patch("/:id/revise", protect, authorize("lecturer"), uploads.single("pdf"), revisePaper);
 
 // -----------------------------
 // Examiner routes

@@ -325,3 +325,23 @@ export const getApprovedPapers = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
+
+// PATCH /papers/:id/revise
+export const revisePaper = async (req, res) => {
+  const { id } = req.params;
+  if (!req.file) return res.status(400).json({ message: "PDF required" });
+
+  try {
+    const paper = await Paper.findById(id);
+    if (!paper) return res.status(404).json({ message: "Paper not found" });
+
+    paper.pdfUrl = `/uploads/${req.file.filename}`;
+    paper.status = "revision_submitted"; // optional, depending on your workflow
+    await paper.save();
+
+    res.json({ message: "Paper revised successfully", paper });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to revise paper" });
+  }
+};

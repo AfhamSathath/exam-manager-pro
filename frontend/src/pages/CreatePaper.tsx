@@ -28,17 +28,31 @@ import { useLocation, useNavigate } from "react-router-dom";
 
 const API_URL = import.meta.env.VITE_API_URL + "/papers";
 
+interface Paper {
+  _id: string;
+  year: Year;
+  semester: Semester;
+  courseCode: string;
+  courseName: string;
+  paperType: PaperType;
+  pdfUrl: string;
+  lecturerId: string;
+  status: "draft" | "pending_moderation" | "approved" | string;
+}
+
 const CreatePaper = () => {
   const { user, token } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const searchParams = new URLSearchParams(location.search);
   const revisionId = searchParams.get("revisionId");
+  const isRevisionMode = !!revisionId;
 
   const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [prevPdfName, setPrevPdfName] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [papers, setPapers] = useState<any[]>([]);
-  const [revisionPaper, setRevisionPaper] = useState<any | null>(null);
+  const [papers, setPapers] = useState<Paper[]>([]);
+  const [revisionPaper, setRevisionPaper] = useState<Paper | null>(null);
 
   const [formData, setFormData] = useState({
     year: "" as Year,
@@ -47,15 +61,21 @@ const CreatePaper = () => {
     paperType: "exam" as PaperType,
   });
 
-  // Fetch all lecturer papers
+  // -----------------------------
+  // Fetch lecturer papers & prefill revision
+  // -----------------------------
   useEffect(() => {
     if (!user) return;
+
     const fetchPapers = async () => {
       try {
         const res = await axios.get(API_URL, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        const lecturerPapers = res.data.filter((p: any) => p.lecturerId === user.id);
+
+        const lecturerPapers: Paper[] = res.data.filter(
+          (p: Paper) => p.lecturerId === user.id
+        );
         setPapers(lecturerPapers);
 
         if (revisionId) {
@@ -65,29 +85,39 @@ const CreatePaper = () => {
             setFormData({
               year: revPaper.year,
               semester: revPaper.semester,
-              courseCode: COURSES.find((c) => c.name === revPaper.courseName)?.code || "",
+              courseCode:
+                COURSES.find((c) => c.name === revPaper.courseName)?.code || "",
               paperType: revPaper.paperType,
             });
+
+            const parts = revPaper.pdfUrl.split("/");
+            setPrevPdfName(parts[parts.length - 1]);
           }
         }
       } catch (err) {
         console.error("Failed to fetch papers:", err);
+        toast.error("Failed to load papers");
       }
     };
+
     fetchPapers();
   }, [user, token, revisionId]);
 
+  // -----------------------------
+  // Filter courses based on selection
+  // -----------------------------
   const filteredCourses = COURSES.filter(
     (c) =>
       c.department === user?.department &&
-      c.year === formData.year &&
+      String(c.year) === String(formData.year) &&
       c.semester === formData.semester
   );
 
-  const selectedCourse = COURSES.find((c) => c.code === formData.courseCode);
-
+  // -----------------------------
+  // Validation
+  // -----------------------------
   const validate = () => {
-    if (!pdfFile) {
+    if (!pdfFile && !isRevisionMode) {
       toast.error("Please upload a PDF file");
       return false;
     }
@@ -95,61 +125,101 @@ const CreatePaper = () => {
       toast.error("User not authenticated");
       return false;
     }
-    if (!revisionPaper) {
+    if (!isRevisionMode) {
       if (!formData.year || !formData.semester) {
         toast.error("Please select year and semester");
         return false;
       }
+      const selectedCourse = filteredCourses.find(
+        (c) => c.code === formData.courseCode
+      );
       if (!selectedCourse) {
-        toast.error("Please select a course");
+        toast.error("Please select a course before submitting");
         return false;
       }
     }
     return true;
   };
 
+  // -----------------------------
+  // View PDF
+  // -----------------------------
+  const viewPdf = () => {
+    if (!revisionPaper?.pdfUrl) return toast.error("No PDF available");
+    const url = revisionPaper.pdfUrl.startsWith("http")
+      ? revisionPaper.pdfUrl
+      : `${import.meta.env.VITE_API_URL.replace(/\/api$/, "")}${revisionPaper.pdfUrl}`;
+    window.open(url, "_blank");
+  };
+
+  // -----------------------------
+  // Handle create or revise
+  // -----------------------------
   const handleSubmit = async (status: "draft" | "pending_moderation") => {
     if (!validate()) return;
     setIsSubmitting(true);
 
     try {
       const payload = new FormData();
-      payload.append("pdf", pdfFile!);
+      if (pdfFile) payload.append("pdf", pdfFile);
       payload.append("status", status);
 
-      let res: AxiosResponse<any, any, {}>;
-      if (revisionPaper) {
-        // Only update PDF for revision
-        res = await axios.put(`${API_URL}/${revisionPaper._id}`, payload, {
-          headers: { "Content-Type": "multipart/form-data", Authorization: `Bearer ${token}` },
-        });
+      let res: AxiosResponse<Paper>;
+
+      if (isRevisionMode && revisionPaper) {
+        // ✅ REVISION MODE: only update PDF & status
+        res = await axios.patch(
+          `${API_URL}/${revisionPaper._id}/revise`,
+          payload,
+          {
+            headers: {
+              "Content-Type": "multipart/form-data",
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
         toast.success("Revision PDF uploaded successfully!");
       } else {
-        // Normal create paper
+        // ✅ CREATION MODE: append all required fields
+        const selectedCourse = filteredCourses.find(
+          (c) => c.code === formData.courseCode
+        );
+
+        if (!selectedCourse) {
+          toast.error("Please select a course before submitting");
+          setIsSubmitting(false);
+          return;
+        }
+
         payload.append("year", formData.year);
         payload.append("semester", formData.semester);
-        payload.append("courseCode", selectedCourse!.code);
-        payload.append("courseName", selectedCourse!.name);
+        payload.append("courseCode", selectedCourse.code);
+        payload.append("courseName", selectedCourse.name);
         payload.append("paperType", formData.paperType);
-        payload.append("lecturerId", user!.id);
+        payload.append("lecturerId", user.id);
 
         res = await axios.post(API_URL, payload, {
-          headers: { "Content-Type": "multipart/form-data", Authorization: `Bearer ${token}` },
+          headers: {
+            "Content-Type": "multipart/form-data",
+            Authorization: `Bearer ${token}`,
+          },
         });
-        toast.success(status === "draft" ? "Draft saved!" : "Submitted for review!");
+        toast.success(
+          status === "draft" ? "Draft saved!" : "Submitted for review!"
+        );
       }
 
-      // Update paper list
+      // Update papers list
       setPapers((prev) => {
-        if (revisionPaper) {
+        if (isRevisionMode && revisionPaper) {
           return prev.map((p) => (p._id === revisionPaper._id ? res.data : p));
         } else {
           return [res.data, ...prev];
         }
       });
 
-      // Reset form
-      if (!revisionPaper) {
+      // Reset form only in creation mode
+      if (!isRevisionMode) {
         setFormData({
           year: "" as Year,
           semester: "" as Semester,
@@ -157,10 +227,12 @@ const CreatePaper = () => {
           paperType: "exam" as PaperType,
         });
       }
+
       setPdfFile(null);
       setRevisionPaper(null);
+      setPrevPdfName(null);
 
-      if (!revisionPaper) navigate("/dashboard");
+      if (!isRevisionMode) navigate("/dashboard");
     } catch (err: any) {
       console.error("CreatePaper Error:", err);
       toast.error(err.response?.data?.message || "Failed to upload paper");
@@ -169,26 +241,29 @@ const CreatePaper = () => {
     }
   };
 
+  // -----------------------------
+  // Render
+  // -----------------------------
   return (
     <DashboardLayout>
       <div className="max-w-4xl mx-auto space-y-6">
+        {/* Paper Form */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <FileText className="w-5 h-5" />
-              {revisionPaper ? "Upload Revision PDF" : "Create Paper"}
+              {isRevisionMode ? "Upload Revision PDF" : "Create Paper"}
             </CardTitle>
             <CardDescription>
-              {revisionPaper
+              {isRevisionMode
                 ? "Upload new PDF for revision. Year, semester, course & type are preserved."
-                : "Upload examination or assessment paper"}
+                : "Upload examination or assessment paper."}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            {/* Show selections only when not in revision mode */}
-            {!revisionPaper && (
+            {/* Only show selections when not revising */}
+            {!isRevisionMode && (
               <>
-                {/* Year & Semester */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <Label>Academic Year</Label>
@@ -204,7 +279,9 @@ const CreatePaper = () => {
                       </SelectTrigger>
                       <SelectContent>
                         {YEARS.map((y) => (
-                          <SelectItem key={y} value={y}>{y}</SelectItem>
+                          <SelectItem key={y} value={y}>
+                            {y}
+                          </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -223,14 +300,15 @@ const CreatePaper = () => {
                       </SelectTrigger>
                       <SelectContent>
                         {SEMESTERS.map((s) => (
-                          <SelectItem key={s} value={s}>{s}</SelectItem>
+                          <SelectItem key={s} value={s}>
+                            {s}
+                          </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </div>
                 </div>
 
-                {/* Course & Paper Type */}
                 <div>
                   <Label>Course</Label>
                   <Select
@@ -272,35 +350,51 @@ const CreatePaper = () => {
               </>
             )}
 
-            {/* PDF Upload (always visible) */}
+            {/* PDF Upload */}
             <div>
               <Label>Upload PDF</Label>
               <Input
                 type="file"
                 accept="application/pdf"
-                onChange={(e) => e.target.files && setPdfFile(e.target.files[0])}
+                onChange={(e) => {
+                  if (e.target.files) setPdfFile(e.target.files[0]);
+                }}
               />
-              {pdfFile && (
+
+              {pdfFile ? (
                 <p className="text-xs text-muted-foreground mt-1">
                   {pdfFile.name} ({(pdfFile.size / 1024).toFixed(1)} KB)
                 </p>
-              )}
+              ) : isRevisionMode && prevPdfName ? (
+                <div className="flex items-center gap-2 mt-1">
+                  <p className="text-xs text-muted-foreground">Current PDF: {prevPdfName}</p>
+                  <Button size="sm" variant="outline" onClick={viewPdf}>
+                    View
+                  </Button>
+                </div>
+              ) : null}
             </div>
 
             {/* Buttons */}
             <div className="flex gap-4 pt-4">
               <Button
+                type="button"
                 variant="outline"
                 onClick={() => handleSubmit("draft")}
                 className="flex-1"
-                disabled={isSubmitting || !pdfFile}
+                disabled={
+                  isSubmitting || (!pdfFile && !isRevisionMode) || (!isRevisionMode && !formData.courseCode)
+                }
               >
                 <Save className="w-4 h-4 mr-2" /> Save Draft
               </Button>
               <Button
+                type="button"
                 onClick={() => handleSubmit("pending_moderation")}
                 className="flex-1"
-                disabled={isSubmitting || !pdfFile}
+                disabled={
+                  isSubmitting || (!pdfFile && !isRevisionMode) || (!isRevisionMode && !formData.courseCode)
+                }
               >
                 <Send className="w-4 h-4 mr-2" /> Submit for Review
               </Button>
@@ -308,7 +402,7 @@ const CreatePaper = () => {
           </CardContent>
         </Card>
 
-        {/* Your Papers List */}
+        {/* Papers List */}
         <Card>
           <CardHeader>
             <CardTitle>Your Papers</CardTitle>
@@ -338,7 +432,9 @@ const CreatePaper = () => {
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => navigate(`/create-paper?revisionId=${paper._id}`)}
+                      onClick={() =>
+                        navigate(`/create-paper?revisionId=${paper._id}`)
+                      }
                     >
                       Revision
                     </Button>

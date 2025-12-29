@@ -137,7 +137,7 @@ useEffect(() => {
 
     let normalizedUrl = pdfUrl.replace(/\\/g, "/");
 
-    // ✅ Handle OLD database values (E:/.../uploads/...)
+    
     if (!normalizedUrl.startsWith("/")) {
       const idx = normalizedUrl.indexOf("/uploads/");
       if (idx === -1) {
