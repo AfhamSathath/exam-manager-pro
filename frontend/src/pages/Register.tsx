@@ -149,6 +149,7 @@ const Register = () => {
                   <User className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                   <Input
                     className="pl-10 py-2 text-sm"
+                    placeholder="John Doe"
                     value={formData.fullName}
                     onChange={(e) =>
                       setFormData({ ...formData, fullName: e.target.value })
@@ -165,6 +166,7 @@ const Register = () => {
                   <Input
                     type="email"
                     className="pl-10 py-2 text-sm"
+                    placeholder="john.doe@example.com"
                     value={formData.email}
                     onChange={(e) =>
                       setFormData({ ...formData, email: e.target.value })
@@ -181,6 +183,7 @@ const Register = () => {
                   <Input
                     type={showPassword ? "text" : "password"}
                     className="pl-10 pr-10 py-2 text-sm"
+                    placeholder="Enter password"
                     value={formData.password}
                     onChange={(e) =>
                       setFormData({ ...formData, password: e.target.value })
@@ -207,6 +210,7 @@ const Register = () => {
                   <Input
                     type={showConfirmPassword ? "text" : "password"}
                     className="pl-3 pr-10 py-2 text-sm"
+                    placeholder="Re-enter password"
                     value={formData.confirmPassword}
                     onChange={(e) =>
                       setFormData({
