@@ -1,4 +1,3 @@
-// frontend/src/pages/CreatePaper.tsx
 import { useState, useEffect } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useAuth } from "@/contexts/AuthContext";
@@ -7,7 +6,6 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
-  CardDescription,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -20,92 +18,65 @@ import {
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { FileText, Send, Save, Calendar, BookOpen } from "lucide-react";
-import axios, { AxiosResponse } from "axios";
+import { FileText, Send, Save, Calendar, BookOpen, AlertCircle, XCircle, CloudUpload, Loader2 } from "lucide-react";
+import axios from "axios";
 import { COURSES, YEARS, SEMESTERS, Year, Semester, PaperType } from "@/types";
 import StatusBadge from "@/components/StatusBadge";
 import { useLocation, useNavigate } from "react-router-dom";
 
 const API_URL = import.meta.env.VITE_API_URL + "/papers";
 
-interface Paper {
-  _id: string;
-  year: Year;
-  semester: Semester;
-  courseCode: string;
-  courseName: string;
-  paperType: PaperType;
-  pdfUrl: string;
-  lecturerId: string;
-  status: "draft" | "pending_moderation" | "approved" | string;
-}
-
 const CreatePaper = () => {
   const { user, token } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  
+  // URL detection for Revision
   const searchParams = new URLSearchParams(location.search);
   const revisionId = searchParams.get("revisionId");
   const isRevisionMode = !!revisionId;
 
   const [pdfFile, setPdfFile] = useState<File | null>(null);
-  const [prevPdfName, setPrevPdfName] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [papers, setPapers] = useState<Paper[]>([]);
-  const [revisionPaper, setRevisionPaper] = useState<Paper | null>(null);
+  const [papers, setPapers] = useState<any[]>([]);
+  const [revisionPaper, setRevisionPaper] = useState<any | null>(null);
 
   const [formData, setFormData] = useState({
-    year: "" as Year,
-    semester: "" as Semester,
+    year: "" as Year | "",
+    semester: "" as Semester | "",
     courseCode: "",
     paperType: "exam" as PaperType,
   });
 
-  // -----------------------------
-  // Fetch lecturer papers & prefill revision
-  // -----------------------------
+  // Load papers and find specific revision target
   useEffect(() => {
-    if (!user) return;
+    if (!user || !token) return;
 
-    const fetchPapers = async () => {
+    const loadData = async () => {
       try {
         const res = await axios.get(API_URL, {
           headers: { Authorization: `Bearer ${token}` },
         });
 
-        const lecturerPapers: Paper[] = res.data.filter(
-          (p: Paper) => p.lecturerId === user.id
-        );
-        setPapers(lecturerPapers);
+        const myPapers = res.data.filter((p: any) => {
+          const lId = typeof p.lecturerId === "object" ? p.lecturerId._id : p.lecturerId;
+          return lId === user.id;
+        });
+        setPapers(myPapers);
 
-        if (revisionId) {
-          const revPaper = lecturerPapers.find((p) => p._id === revisionId);
-          if (revPaper) {
-            setRevisionPaper(revPaper);
-            setFormData({
-              year: revPaper.year,
-              semester: revPaper.semester,
-              courseCode:
-                COURSES.find((c) => c.name === revPaper.courseName)?.code || "",
-              paperType: revPaper.paperType,
-            });
-
-            const parts = revPaper.pdfUrl.split("/");
-            setPrevPdfName(parts[parts.length - 1]);
+        if (isRevisionMode && revisionId) {
+          const target = myPapers.find((p: any) => p._id === revisionId);
+          if (target) {
+            setRevisionPaper(target);
           }
         }
       } catch (err) {
-        console.error("Failed to fetch papers:", err);
-        toast.error("Failed to load papers");
+        console.error("Initialization error:", err);
       }
     };
+    loadData();
+  }, [user, token, revisionId, isRevisionMode]);
 
-    fetchPapers();
-  }, [user, token, revisionId]);
-
-  // -----------------------------
-  // Filter courses based on selection
-  // -----------------------------
   const filteredCourses = COURSES.filter(
     (c) =>
       c.department === user?.department &&
@@ -113,337 +84,214 @@ const CreatePaper = () => {
       c.semester === formData.semester
   );
 
-  // -----------------------------
-  // Validation
-  // -----------------------------
-  const validate = () => {
-    if (!pdfFile && !isRevisionMode) {
-      toast.error("Please upload a PDF file");
-      return false;
-    }
-    if (!user) {
-      toast.error("User not authenticated");
-      return false;
-    }
-    if (!isRevisionMode) {
-      if (!formData.year || !formData.semester) {
-        toast.error("Please select year and semester");
-        return false;
-      }
-      const selectedCourse = filteredCourses.find(
-        (c) => c.code === formData.courseCode
-      );
-      if (!selectedCourse) {
-        toast.error("Please select a course before submitting");
-        return false;
-      }
-    }
-    return true;
-  };
-
-  // -----------------------------
-  // View PDF
-  // -----------------------------
-  const viewPdf = () => {
-    if (!revisionPaper?.pdfUrl) return toast.error("No PDF available");
-    const url = revisionPaper.pdfUrl.startsWith("http")
-      ? revisionPaper.pdfUrl
-      : `${import.meta.env.VITE_API_URL.replace(/\/api$/, "")}${revisionPaper.pdfUrl}`;
-    window.open(url, "_blank");
-  };
-
-  // -----------------------------
-  // Handle create or revise
-  // -----------------------------
   const handleSubmit = async (status: "draft" | "pending_moderation") => {
-    if (!validate()) return;
+    // Validation
+    if (!pdfFile) return toast.error("Please upload a PDF file");
+    if (!isRevisionMode && !formData.courseCode) return toast.error("Please select a course");
+
     setIsSubmitting(true);
+    const payload = new FormData();
+    payload.append("status", status);
+    payload.append("pdf", pdfFile);
 
     try {
-      const payload = new FormData();
-      if (pdfFile) payload.append("pdf", pdfFile);
-      payload.append("status", status);
+      const config = {
+        headers: { 
+          "Content-Type": "multipart/form-data", 
+          Authorization: `Bearer ${token}` 
+        },
+      };
 
-      let res: AxiosResponse<Paper>;
-
-      if (isRevisionMode && revisionPaper) {
-        // ✅ REVISION MODE: only update PDF & status
-        res = await axios.patch(
-          `${API_URL}/${revisionPaper._id}/revise`,
-          payload,
-          {
-            headers: {
-              "Content-Type": "multipart/form-data",
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
-        toast.success("Revision PDF uploaded successfully!");
+      if (isRevisionMode && revisionId) {
+        // --- REVISION: Only PATCH PDF and Status ---
+        await axios.patch(`${API_URL}/${revisionId}/revise`, payload, config);
+        toast.success("Revision uploaded successfully");
       } else {
-        // ✅ CREATION MODE: append all required fields
-        const selectedCourse = filteredCourses.find(
-          (c) => c.code === formData.courseCode
-        );
-
-        if (!selectedCourse) {
-          toast.error("Please select a course before submitting");
-          setIsSubmitting(false);
-          return;
-        }
-
+        // --- NEW PAPER: POST everything ---
+        const selected = COURSES.find((c) => c.code === formData.courseCode);
         payload.append("year", formData.year);
         payload.append("semester", formData.semester);
-        payload.append("courseCode", selectedCourse.code);
-        payload.append("courseName", selectedCourse.name);
+        payload.append("courseCode", formData.courseCode);
+        payload.append("courseName", selected?.name || "");
         payload.append("paperType", formData.paperType);
-        payload.append("lecturerId", user.id);
+        payload.append("lecturerId", user!.id);
 
-        res = await axios.post(API_URL, payload, {
-          headers: {
-            "Content-Type": "multipart/form-data",
-            Authorization: `Bearer ${token}`,
-          },
-        });
-        toast.success(
-          status === "draft" ? "Draft saved!" : "Submitted for review!"
-        );
+        await axios.post(API_URL, payload, config);
+        toast.success(status === "draft" ? "Draft saved" : "Submitted successfully");
       }
 
-      // Update papers list
-      setPapers((prev) => {
-        if (isRevisionMode && revisionPaper) {
-          return prev.map((p) => (p._id === revisionPaper._id ? res.data : p));
-        } else {
-          return [res.data, ...prev];
-        }
-      });
-
-      // Reset form only in creation mode
-      if (!isRevisionMode) {
-        setFormData({
-          year: "" as Year,
-          semester: "" as Semester,
-          courseCode: "",
-          paperType: "exam" as PaperType,
-        });
-      }
-
-      setPdfFile(null);
-      setRevisionPaper(null);
-      setPrevPdfName(null);
-
-      if (!isRevisionMode) navigate("/dashboard");
+      navigate("/dashboard");
     } catch (err: any) {
-      console.error("CreatePaper Error:", err);
-      toast.error(err.response?.data?.message || "Failed to upload paper");
+      toast.error(err.response?.data?.message || "Action failed");
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // -----------------------------
-  // Render
-  // -----------------------------
   return (
     <DashboardLayout>
       <div className="max-w-4xl mx-auto space-y-6">
-        {/* Paper Form */}
-        <Card>
-          <CardHeader>
+        <Card className={isRevisionMode ? "border-2 border-amber-500 shadow-sm" : ""}>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0">
             <CardTitle className="flex items-center gap-2">
-              <FileText className="w-5 h-5" />
-              {isRevisionMode ? "Upload Revision PDF" : "Create Paper"}
+              <CloudUpload className="w-5 h-5 text-primary" />
+              {isRevisionMode ? "Revise Existing Paper" : "Upload New Paper"}
             </CardTitle>
-            <CardDescription>
-              {isRevisionMode
-                ? "Upload new PDF for revision. Year, semester, course & type are preserved."
-                : "Upload examination or assessment paper."}
-            </CardDescription>
+            {isRevisionMode && (
+              <Button variant="ghost" size="sm" onClick={() => navigate("/dashboard/create-paper")}>
+                <XCircle className="w-4 h-4 mr-2" /> Exit Revision
+              </Button>
+            )}
           </CardHeader>
+          
           <CardContent className="space-y-6">
-            {/* Only show selections when not revising */}
-            {!isRevisionMode && (
+            {isRevisionMode ? (
+              /* --- REVISION MODE UI: ONLY SHOW PDF UPLOAD --- */
+              <div className="space-y-6">
+                <div className="flex items-center gap-4 p-4 bg-slate-50 border rounded-lg">
+                  <div className="p-2 bg-white rounded shadow-sm">
+                    <FileText className="w-6 h-6 text-amber-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium">Revising: {revisionPaper?.courseCode}</p>
+                    <p className="text-xs text-muted-foreground">{revisionPaper?.courseName}</p>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <Label className="text-base font-semibold">Upload Corrected PDF</Label>
+                  <Input
+                    type="file"
+                    accept="application/pdf"
+                    className="h-24 border-dashed border-2 cursor-pointer bg-slate-50/50 hover:bg-slate-50 transition-colors"
+                    onChange={(e) => e.target.files && setPdfFile(e.target.files[0])}
+                  />
+                  <div className="flex gap-2 text-[11px] text-amber-700 bg-amber-50 p-2 rounded">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    Metadata (Course, Year) cannot be changed during revision.
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* --- CREATE MODE UI: SHOW FULL FORM --- */
               <>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
+                  <div className="space-y-2">
                     <Label>Academic Year</Label>
                     <Select
-                      value={formData.year}
-                      onValueChange={(value) =>
-                        setFormData({ ...formData, year: value as Year, courseCode: "" })
-                      }
+                      value={formData.year || undefined}
+                      onValueChange={(v) => setFormData({ ...formData, year: v as Year, courseCode: "" })}
                     >
-                      <SelectTrigger>
-                        <Calendar className="w-4 h-4 mr-2" />
-                        <SelectValue placeholder="Select year" />
-                      </SelectTrigger>
+                      <SelectTrigger><Calendar className="w-4 h-4 mr-2" /><SelectValue placeholder="Year" /></SelectTrigger>
                       <SelectContent>
-                        {YEARS.map((y) => (
-                          <SelectItem key={y} value={y}>
-                            {y}
-                          </SelectItem>
-                        ))}
+                        {YEARS.map((y) => <SelectItem key={y} value={y}>{y}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
-                  <div>
+                  <div className="space-y-2">
                     <Label>Semester</Label>
                     <Select
-                      value={formData.semester}
+                      value={formData.semester || undefined}
                       disabled={!formData.year}
-                      onValueChange={(value) =>
-                        setFormData({ ...formData, semester: value as Semester, courseCode: "" })
-                      }
+                      onValueChange={(v) => setFormData({ ...formData, semester: v as Semester, courseCode: "" })}
                     >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select semester" />
-                      </SelectTrigger>
+                      <SelectTrigger><SelectValue placeholder="Semester" /></SelectTrigger>
                       <SelectContent>
-                        {SEMESTERS.map((s) => (
-                          <SelectItem key={s} value={s}>
-                            {s}
-                          </SelectItem>
-                        ))}
+                        {SEMESTERS.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
                 </div>
 
-                <div>
+                <div className="space-y-2">
                   <Label>Course</Label>
                   <Select
-                    value={formData.courseCode}
-                    disabled={!formData.year || !formData.semester}
-                    onValueChange={(value) => setFormData({ ...formData, courseCode: value })}
+                    value={formData.courseCode || undefined}
+                    disabled={!formData.semester}
+                    onValueChange={(v) => setFormData({ ...formData, courseCode: v })}
                   >
-                    <SelectTrigger>
-                      <BookOpen className="w-4 h-4 mr-2" />
-                      <SelectValue placeholder="Select course" />
-                    </SelectTrigger>
+                    <SelectTrigger><BookOpen className="w-4 h-4 mr-2" /><SelectValue placeholder="Select course" /></SelectTrigger>
                     <SelectContent>
                       {filteredCourses.map((c) => (
-                        <SelectItem key={c.code} value={c.code}>
-                          {c.code} - {c.name}
-                        </SelectItem>
+                        <SelectItem key={c.code} value={c.code}>{c.code} - {c.name}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
 
-                <div>
-                  <Label>Paper Type</Label>
-                  <Select
-                    value={formData.paperType}
-                    onValueChange={(value) =>
-                      setFormData({ ...formData, paperType: value as PaperType })
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="exam">Examination</SelectItem>
-                      <SelectItem value="assessment">Assessment</SelectItem>
-                    </SelectContent>
-                  </Select>
+                <div className="space-y-3 pt-4 border-t">
+                  <Label>Upload Paper PDF</Label>
+                  <Input
+                    type="file"
+                    accept="application/pdf"
+                    onChange={(e) => e.target.files && setPdfFile(e.target.files[0])}
+                  />
                 </div>
               </>
             )}
 
-            {/* PDF Upload */}
-            <div>
-              <Label>Upload PDF</Label>
-              <Input
-                type="file"
-                accept="application/pdf"
-                onChange={(e) => {
-                  if (e.target.files) setPdfFile(e.target.files[0]);
-                }}
-              />
-
-              {pdfFile ? (
-                <p className="text-xs text-muted-foreground mt-1">
-                  {pdfFile.name} ({(pdfFile.size / 1024).toFixed(1)} KB)
-                </p>
-              ) : isRevisionMode && prevPdfName ? (
-                <div className="flex items-center gap-2 mt-1">
-                  <p className="text-xs text-muted-foreground">Current PDF: {prevPdfName}</p>
-                  <Button size="sm" variant="outline" onClick={viewPdf}>
-                    View
-                  </Button>
-                </div>
-              ) : null}
-            </div>
-
-            {/* Buttons */}
             <div className="flex gap-4 pt-4">
-              <Button
-                type="button"
-                variant="outline"
+              <Button 
+                variant="outline" 
+                className="flex-1" 
+                disabled={isSubmitting} 
                 onClick={() => handleSubmit("draft")}
-                className="flex-1"
-                disabled={
-                  isSubmitting || (!pdfFile && !isRevisionMode) || (!isRevisionMode && !formData.courseCode)
-                }
               >
                 <Save className="w-4 h-4 mr-2" /> Save Draft
               </Button>
-              <Button
-                type="button"
+              <Button 
+                className="flex-1" 
+                disabled={isSubmitting} 
                 onClick={() => handleSubmit("pending_moderation")}
-                className="flex-1"
-                disabled={
-                  isSubmitting || (!pdfFile && !isRevisionMode) || (!isRevisionMode && !formData.courseCode)
-                }
               >
-                <Send className="w-4 h-4 mr-2" /> Submit for Review
+                {isSubmitting ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <>
+                    <Send className="w-4 h-4 mr-2" />
+                    {isRevisionMode ? "Upload Revision" : "Submit Paper"}
+                  </>
+                )}
               </Button>
             </div>
           </CardContent>
         </Card>
 
-        {/* Papers List */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Your Papers</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {papers.length === 0 ? (
-              <p className="text-muted-foreground">No papers yet.</p>
-            ) : (
-              papers.map((paper) => (
-                <div
-                  key={paper._id}
-                  className="flex items-center justify-between p-4 rounded-lg border hover:bg-muted/50 transition-colors"
-                >
-                  <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+        {/* Existing Submissions List - only shown in Create Mode */}
+        {!isRevisionMode && (
+          <Card>
+            <CardHeader><CardTitle className="text-lg">Recent Submissions</CardTitle></CardHeader>
+            <CardContent className="space-y-3">
+              {papers.length === 0 ? (
+                <p className="text-center text-muted-foreground text-sm py-6">No papers uploaded yet.</p>
+              ) : (
+                papers.map((p) => (
+                  <div key={p._id} className="flex items-center justify-between p-3 border rounded-lg bg-slate-50/50">
+                    <div className="flex items-center gap-3">
                       <FileText className="w-5 h-5 text-primary" />
+                      <div>
+                        <p className="text-sm font-medium">{p.courseCode}</p>
+                        <p className="text-xs text-muted-foreground">{p.year} • {p.semester}</p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="font-medium">{paper.courseName}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {paper.year} • {paper.semester}
-                      </p>
+                    <div className="flex items-center gap-3">
+                      <StatusBadge status={p.status} />
+                      {(p.status === "draft" || p.status === "revision_required") && (
+                        <Button 
+                          size="sm" 
+                          variant="outline" 
+                          onClick={() => navigate(`/dashboard/create-paper?revisionId=${p._id}`)}
+                        >
+                          Edit
+                        </Button>
+                      )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <StatusBadge status={paper.status} />
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() =>
-                        navigate(`/create-paper?revisionId=${paper._id}`)
-                      }
-                    >
-                      Revision
-                    </Button>
-                  </div>
-                </div>
-              ))
-            )}
-          </CardContent>
-        </Card>
+                ))
+              )}
+            </CardContent>
+          </Card>
+        )}
       </div>
     </DashboardLayout>
   );

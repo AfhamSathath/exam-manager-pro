@@ -5,6 +5,7 @@ import path from "path";
 
 import {
   createPaper,
+  revisePaper,
   submitPaper,
   updatePaper,
   deletePaper,
@@ -17,7 +18,6 @@ import {
   getModeratedPapers,
   getApprovedPapers,
   getPendingApprovals,
-  revisePaper,
 } from "../controllers/paperController.js";
 
 import { protect, authorize } from "../middleware/auth.js";
